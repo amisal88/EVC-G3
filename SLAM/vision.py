@@ -58,7 +58,7 @@ class Object_detector:
 		
 		self.__color_codes_upper = [self.__blueUpper, self.__purpleUpper, self.__orangeUpper, self.__yellowUpper]
 		self.__color_codes_lower = [self.__blueLower, self.__purpleLower, self.__orangeLower, self.__yellowLower]
-		self.__color_names = ['Blue' , 'Purple', 'Orange', 'Yellow']
+		self.__color_names = ['BLUE' , 'PURPLE', 'ORANGE', 'YELLOW']
 		
 		self.__video_source = video_source
 		
@@ -124,9 +124,9 @@ class Object_detector:
 							cv2.putText(frame, self.__color_names[i], (cX - 20, cY - 20),
 							cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 							
-							object_properties['name'] = 'BOTTLE'+self.__color_names[i];
+							object_properties['name'] = 'BOTTLE_'+self.__color_names[i];
 							object_properties['position'] = (cX, cY)
-							objects_list.append(object_properties)
+							objects_list.append(object_properties.copy())
 							
 
 							
@@ -158,17 +158,18 @@ class Object_detector:
 									cv2.putText(frame, "cone", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 									object_properties['name'] = 'CONE';
 									object_properties['position'] = (cX, cY)
-									objects_list.append(object_properties)
+									objects_list.append(object_properties.copy())
 								else:
 									cv2.putText(frame, "bottle_orange", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-									object_properties['name'] = BOTTLE+self.__color_names[i];
+									object_properties['name'] = 'BOTTLE_'+self.__color_names[i];
 									object_properties['position'] = (cX, cY)
-									objects_list.append(object_properties)
+									objects_list.append(object_properties.copy())
 									
 								
 
 		# show the frame to our screen
 		cv2.imshow("Frame", frame)
+		cv2.waitKey()
 
 
 	# if we are not using a video file, stop the camera video stream

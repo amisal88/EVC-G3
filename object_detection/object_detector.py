@@ -40,6 +40,13 @@ def convex_hull_pointing_up(ch):
         return False
         
     return True
+
+class Robot_vision:
+    def __init__(self):
+        object_properties = {'bottle' , 'name' : 'bottle', 'probability' : 0.0, 'position' : (0,0), 'stdev_p' : 0, 'rotation' : 0.0 , 'stdev_r': 0.0}
+        objects_list = []
+    
+
 # construct the argument parse and parse the arguments
 ap = argparse.ArgumentParser()
 ap.add_argument("-v", "--video",
