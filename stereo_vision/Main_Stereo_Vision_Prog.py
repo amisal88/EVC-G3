@@ -10,6 +10,7 @@ import numpy as np
 import cv2
 import RPi.GPIO as gp
 import time
+import pickle
 from openpyxl import Workbook # Used for writing data into an Excel file
 #from sklearn.preprocessing import normalize
 
@@ -63,7 +64,7 @@ imgpointsL= []
 # Start calibration from the camera
 print('Starting calibration for the 2 cameras... ')
 # Call all saved images
-for i in range(0,6):   # Put the amount of pictures you have taken for the calibration inbetween range(0,?) wenn starting from the image number 0
+for i in range(0,16):   # Put the amount of pictures you have taken for the calibration inbetween range(0,?) wenn starting from the image number 0
 	t= str(i)
 	ChessImaR= cv2.imread('chessboard-R'+t+'.png',0)	# Right side
 	ChessImaL= cv2.imread('chessboard-L'+t+'.png',0)	# Left side
@@ -192,12 +193,21 @@ gp.output(12, True)
 
 # initialize the camera and grab a reference to the raw camera capture
 camera = PiCamera()
-camera.resolution = (1024, 768)
+camera.resolution = (640, 480)
 rawCapture = PiRGBArray(camera)
  
 # allow the camera to warmup
 time.sleep(0.1)
+print Left_Stereo_Map
+print Right_Stereo_Map
 
+file = open('Left_Stereo_Map_file.txt', 'w')
+pickle.dump(Left_Stereo_Map, file)
+file.close()
+
+file = open('Right_Stereo_Map_file.txt', 'w')
+pickle.dump(Right_Stereo_Map, file)
+file.close()
 
 while True:
 	# Start Reading Camera images
@@ -220,8 +230,12 @@ while True:
 	Left_nice= cv2.remap(frameL,Left_Stereo_Map[0],Left_Stereo_Map[1], cv2.INTER_LANCZOS4, cv2.BORDER_CONSTANT, 0)  # Rectify the image using the kalibration parameters founds during the initialisation
 	Right_nice= cv2.remap(frameR,Right_Stereo_Map[0],Right_Stereo_Map[1], cv2.INTER_LANCZOS4, cv2.BORDER_CONSTANT, 0)
 	
+	cv2.imshow('Right Nice', Right_nice)
+	cv2.imshow('Left Nice', Left_nice)
+	
 	cv2.imshow('Right', frameR)
 	cv2.imshow('Left', frameL)
+	
 	k = cv2.waitKey(100)
 	# End the Programme
 	if cv2.waitKey(1) & 0xFF == ord(' '):
@@ -234,4 +248,5 @@ while True:
 CamR.release()
 CamL.release()
 cv2.destroyAllWindows()
+
 
