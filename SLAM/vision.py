@@ -1,49 +1,154 @@
-# USAGE
-# python ball_tracking.py --video ball_tracking_example.mp4
-# python ball_tracking.py
-
 # import the necessary packages
 from collections import deque
+from picamera.array import PiRGBArray
+from picamera import PiCamera
 from imutils.video import VideoStream
 import numpy as np
 import argparse
 import cv2
 import imutils
 import time
+import RPi.GPIO as gp
+from pyzbar import pyzbar
+import math
+
+def intersect(l1, l2):
+	delta = np.array([l1[1] - l1[0], l2[1] - l2[0]]).astype(np.float32)
+	
+	delta = 1 / delta
+	delta[:, 0] *= -1
+	
+	b = np.matmul(delta, np.array([l1[0], l2[0]]).transpose())
+	b = np.diagonal(b).astype(np.float32)
+		
+	res = cv2.solve(delta, b)
+	return res[0], tuple(res[1].astype(np.int32).reshape((2)))
+
+def rectify(image, corners, out_size):
+	rect = np.zeros((4, 2), dtype = "float32")
+	rect[0] = corners[0]
+	rect[1] = corners[1]
+	rect[2] = corners[2]
+	rect[3] = corners[3]
+
+	dst = np.array([
+		[0, 0],
+		[out_size[1] - 1, 0],
+		[out_size[1] - 1, out_size[0] - 1],
+		[0, out_size[0] - 1]], dtype = "float32")
+
+	M = cv2.getPerspectiveTransform(rect, dst)
+	rectified = cv2.warpPerspective(image, M, out_size)
+	return rectified
+
+def qr_code_outer_corners(image):
+	outer_corners_found = False
+	outer_corners = []
+	
+	gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+	_, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+	
+	_, contours, hierarchy = \
+			cv2.findContours(th, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+	
+	cnts = []
+	centers = []
+		
+	hierarchy = hierarchy.reshape((-1, 4))
+	for i in range(hierarchy.shape[0]):
+		i_next, i_prev, i_child, i_par = hierarchy[i]
+		if all(v == -1 for v in hierarchy[i][:3]):
+			if all(v == -1 for v in hierarchy[i_par][:2]):
+				ids = [i, i_par, hierarchy[i_par][3]]
+				corner_cnts = []
+				for id_ in ids:
+					cnt = contours[id_]
+					apprx = \
+						cv2.approxPolyDP(cnt, cv2.arcLength(cnt, True) * 0.06, True)
+					if len(apprx) == 4:
+						corner_cnts.append(apprx.reshape((4, -1)))
+				if len(corner_cnts) == 3:
+					cnts.append(corner_cnts)
+					all_pts = np.array(corner_cnts).reshape(-1, 2)
+					
+					centers.append(np.mean(all_pts, 0))
+
+	
+	if len(centers) == 3:		
+		distances_between_pts = np.linalg.norm(np.roll(centers, 1, 0) - centers, axis=1)
+		max_dist_id = np.argmax(distances_between_pts)
+		
+		index_diag_pt_1 = max_dist_id
+		index_diag_pt_2 = (max_dist_id - 1) % len(centers)
+		index_corner_pt = (len(centers) - 1)*len(centers) // 2 - index_diag_pt_1 - index_diag_pt_2
+		
+		middle_pt = 0.5 * (centers[index_diag_pt_1] + centers[index_diag_pt_2])
+		
+		i_ul_pt = np.argmax(np.linalg.norm(cnts[index_corner_pt][-1] - middle_pt, axis=1))
+		ul_pt = cnts[index_corner_pt][-1][i_ul_pt]
+				
+		for i in [index_diag_pt_1, index_diag_pt_2]:
+			corner_cnts = cnts[i]
+			outer_cnt = corner_cnts[-1]
+			
+			distances_to_mp = np.linalg.norm(outer_cnt - middle_pt, axis=1)
+			max_dist_id = np.argmax(distances_to_mp)	  
+		
+			vec_from_mid_to_diag = outer_cnt[max_dist_id] - middle_pt
+			vec_from_mid_to_corner = ul_pt - middle_pt
+			cross_prod = np.cross(vec_from_mid_to_corner, vec_from_mid_to_diag)
+		
+			diff_idx = 0
+		
+			if cross_prod > 0:
+				ur_pt = outer_cnt[max_dist_id]
+				ur_pt_2 = outer_cnt[(max_dist_id + 1) % len(outer_cnt)]
+			else:
+				bl_pt = outer_cnt[max_dist_id]
+				bl_pt_2 = outer_cnt[(max_dist_id - 1) % len(outer_cnt)]
+					
+		ret, br_pt = intersect((bl_pt, bl_pt_2), (ur_pt, ur_pt_2))
+		
+		if ret == True:
+			outer_corners_found = True
+			outer_corners = [ul_pt, ur_pt, br_pt, bl_pt]
+	
+	return outer_corners_found, outer_corners
 
 def convex_hull_pointing_up(ch):
-    points_above_center, points_below_center = [], []
-    
-    x, y, w, h = cv2.boundingRect(ch)
-    aspect_ratio = w / h
-    if aspect_ratio < 0.8:
-        vertical_center = y + h / 2
+	points_above_center, points_below_center = [], []
+	x, y, w, h = cv2.boundingRect(ch)
+	aspect_ratio = w / h
+	if aspect_ratio < 0.8:
+		vertical_center = y + h / 2
 
-        for point in ch:
-            if point[0][1] < vertical_center:
-                points_above_center.append(point)
-            elif point[0][1] >= vertical_center:
-                points_below_center.append(point)
+		for point in ch:
+			if point[0][1] < vertical_center:
+				points_above_center.append(point)
+			elif point[0][1] >= vertical_center:
+				points_below_center.append(point)
 				
-        left_x = points_below_center[0][0][0]
-        right_x = points_below_center[0][0][0]
-        for point in points_below_center:
-            if point[0][0] < left_x:
-                left_x = point[0][0]
-            if point[0][0] > right_x:
-                right_x = point[0][0]
+		left_x = points_below_center[0][0][0]
+		right_x = points_below_center[0][0][0]
+		for point in points_below_center:
+			if point[0][0] < left_x:
+				left_x = point[0][0]
+			if point[0][0] > right_x:
+				right_x = point[0][0]
 
-        for point in points_above_center:
-            if (point[0][0] < left_x) or (point[0][0] > right_x):
-                return False
-    else:
-        return False
-        
-    return True
+		for point in points_above_center:
+			if (point[0][0] < left_x) or (point[0][0] > right_x):
+				return False
+	else:
+		return False
+		
+	return True
 
 class Object_detector:
-    def __init__(self, video_source, video_file):
+	def __init__(self, debug_on):
 	
+		self.__focalLength = 10.0
+		self.__debug_on = debug_on
 		self.__blueLower = (78, 157, 73)
 		self.__blueUpper = (106, 255, 255)
 
@@ -60,41 +165,54 @@ class Object_detector:
 		self.__color_codes_lower = [self.__blueLower, self.__purpleLower, self.__orangeLower, self.__yellowLower]
 		self.__color_names = ['BLUE' , 'PURPLE', 'ORANGE', 'YELLOW']
 		
-		self.__video_source = video_source
+		self.__DIM=(640, 480)
+		self.__KL=np.array([[310.89487794241705, 0.0, 310.4701490632405], [0.0, 311.6045360428195, 217.332401108332], [0.0, 0.0, 1.0]])
+		self.__DL=np.array([[-0.02678943147680496], [0.07199621192297553], [-0.17537795442931486], [0.1224981141497315]])
+		self.__KR=np.array([[311.9993342853497, 0.0, 288.39779549515345], [0.0, 312.9238338162564, 233.89810329394894], [0.0, 0.0, 1.0]])
+		self.__DR=np.array([[-0.035125623121583065], [0.0721407010760906], [-0.1341791663672435], [0.07146034215266592]])
 		
-		if video_source == 0:
-			self.__vs = VideoStream(usePiCamera=True).start()
-		# otherwise, grab a reference to the video file
-		else:
-			self.__vs = cv2.VideoCapture(video_file)
+		# initialize the camera and grab a reference to the raw camera capture
+		gp.setwarnings(False)
+		gp.setmode(gp.BOARD)
+		gp.setup(7, gp.OUT)
+		gp.setup(11, gp.OUT)
+		gp.setup(12, gp.OUT)
+		gp.setup(15, gp.OUT)
+		gp.setup(16, gp.OUT)
+		gp.setup(21, gp.OUT)
+		gp.setup(22, gp.OUT)
+
+		gp.output(11, True)
+		gp.output(12, True)
+		gp.output(15, True)
+		gp.output(16, True)
+		gp.output(21, True)
+		gp.output(22, True)
+
+		gp.output(7, False)
+		gp.output(11, False)
+		gp.output(12, True)
+		
+		self.__camera = PiCamera()
+		self.__camera.resolution = (640, 480)
+		self.__rawCapture = PiRGBArray(self.__camera)
 			
 		time.sleep(2.0)
 		
 	
-    def process(self):
+	def objects_process(self):
 
 		# grab the current frame
-		object_properties = {'name' : 'bottle', 'probability' : 0.0, 'position' : (0,0), 'stdev_p' : 0, 'rotation' : 0.0 , 'stdev_r': 0.0}
+		object_properties = {'name' : None, 'probability' : 0.0, 'position' : (0,0), 'distance' : 0.0 ,'stdev_p' : 0, 'rotation' : 0.0 , 'stdev_r': 0.0}
 		objects_list = []
-		frame = self.__vs.read()
-
-		# handle the frame from VideoCapture or VideoStream
-		frame = frame[1] if  (self.__video_source == 1) else frame
-
-		# if we are viewing a video and we did not grab a frame,
-		# then we have reached the end of the video
-##		if frame is None:
-##		    break
-
-		# resize the frame, blur it, and convert it to the HSV
-		# color space
-		frame = imutils.resize(frame, width=600)
+		self.__camera.capture(self.__rawCapture, format="bgr")
+		frameR = self.__rawCapture.array
+		map1R, map2R = cv2.fisheye.initUndistortRectifyMap(self.__KR, self.__DR, np.eye(3), self.__KR, self.__DIM, cv2.CV_16SC2)
+		frame = cv2.remap(frameR, map1R, map2R, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+		self.__rawCapture.truncate(0)
+		# resize the frame, blur it, and convert it to the HSV color space
 		blurred = cv2.GaussianBlur(frame, (11, 11), 0)
 		hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
-
-		# construct a mask for the color "green", then perform
-		# a series of dilations and erosions to remove any small
-		# blobs left in the mask
 		
 		for i in range(4):
 				mask = cv2.inRange(hsv, self.__color_codes_lower[i], self.__color_codes_upper[i])
@@ -117,18 +235,24 @@ class Object_detector:
 							M = cv2.moments(c)
 							cX = int(M["m10"] / M["m00"])
 							cY = int(M["m01"] / M["m00"])
-			##		((x, y), radius) = cv2.minEnclosingCircle(c)
-			##		M = cv2.moments(c)
-			##		center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
-							cv2.drawContours(frame,[c],0,(0,255,0),3)
-							cv2.putText(frame, self.__color_names[i], (cX - 20, cY - 20),
-							cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+							
+							if (self.__debug_on == 1):
+								cv2.drawContours(frame,[c],0,(0,255,0),3)
+								cv2.putText(frame, self.__color_names[i], (cX - 20, cY - 20),
+								cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 							
 							object_properties['name'] = 'BOTTLE_'+self.__color_names[i];
 							object_properties['position'] = (cX, cY)
+							marker = cv2.minAreaRect(c)
+							object_properties['distance'] = (26.0 * self.__focalLength) / marker[1][1]
 							objects_list.append(object_properties.copy())
-							
-
+							# focal length calibration 
+							KNOWN_DISTANCE = 100.0
+							KNOWN_HEIGHT = 26.0
+							marker = cv2.minAreaRect(c)
+							focalLength = (marker[1][1] * KNOWN_DISTANCE) / KNOWN_HEIGHT
+							print 'focalLength'
+							print focalLength
 							
 						else:
 							img_edges = cv2.Canny(mask.copy(), 80, 160)
@@ -153,34 +277,68 @@ class Object_detector:
 								M = cv2.moments(c)
 								cX = int(M["m10"] / M["m00"])
 								cY = int(M["m01"] / M["m00"])
-								cv2.drawContours(frame,[c],0,(0,255,0),3)
+								
 								if convex_hull_pointing_up(c):
-									cv2.putText(frame, "cone", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+									if (self.__debug_on == 1):
+										cv2.drawContours(frame,[c],0,(0,255,0),3)
+										cv2.putText(frame, "cone", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 									object_properties['name'] = 'CONE';
 									object_properties['position'] = (cX, cY)
+									marker = cv2.minAreaRect(c)
+									object_properties['distance'] = (17.5 * self.__focalLength) / marker[1][1]
 									objects_list.append(object_properties.copy())
 								else:
-									cv2.putText(frame, "bottle_orange", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+									if (self.__debug_on == 1):
+										cv2.drawContours(frame,[c],0,(0,255,0),3)
+										cv2.putText(frame, "bottle_orange", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 									object_properties['name'] = 'BOTTLE_'+self.__color_names[i];
 									object_properties['position'] = (cX, cY)
+									marker = cv2.minAreaRect(c)
+									object_properties['distance'] = (26.0 * self.__focalLength) / marker[1][1]
 									objects_list.append(object_properties.copy())
 									
 								
 
 		# show the frame to our screen
-		cv2.imshow("Frame", frame)
-		cv2.waitKey()
-
-
-	# if we are not using a video file, stop the camera video stream
-	#if self.__video_source == 0:
-		#self.__vs.stop()
-
-	# otherwise, release the camera
-	#else:
-		#self.__vs.release()
-
-	# close all windows
-	#cv2.destroyAllWindows()
-	
+		if (self.__debug_on == 1):
+			cv2.imshow("Frame", frame)
+			cv2.waitKey(100)
 		return objects_list
+
+	def qr_process(self):
+
+		self.__camera.capture(self.__rawCapture, format="bgr")
+		frameR = self.__rawCapture.array
+		map1R, map2R = cv2.fisheye.initUndistortRectifyMap(self.__KR, self.__DR, np.eye(3), self.__KR, self.__DIM, cv2.CV_16SC2)
+		image = cv2.remap(frameR, map1R, map2R, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+		self.__rawCapture.truncate(0)
+		result, corners = qr_code_outer_corners(image)
+		qr_code_size = 100
+		QR_code_properties = {'name' : None, 'angle' : None}
+	
+		if result:
+			if all((0, 0) < tuple(c) < (image.shape[1], image.shape[0]) for c in corners):
+				rectified = rectify(image, corners, (qr_code_size, qr_code_size))
+				angle = int(math.atan((float)((corners[0][1]-corners[1][1]))/((float)(corners[1][0]-corners[0][0])))*180/math.pi)
+				QR_code_properties['angle'] = angle
+				
+				if (self.__debug_on == 1):
+					print angle
+					cv2.circle(image, tuple(corners[0]), 15, (0, 255, 0), 2)
+					cv2.circle(image, tuple(corners[1]), 15, (0, 0, 255), 2)
+					cv2.circle(image, tuple(corners[2]), 15, (255, 0, 0), 2)
+					cv2.circle(image, tuple(corners[3]), 15, (255, 255, 0), 2)
+					image.flags.writeable = True
+					image[0:qr_code_size, 0:qr_code_size] = rectified
+
+				barcodes = pyzbar.decode(rectified)
+
+				# loop over the detected barcodes
+				for barcode in barcodes:
+					barcodeData = barcode.data.decode("utf-8")
+					barcodeType = barcode.type
+					QR_code_properties['name'] = format(barcodeData).encode('utf-8') 
+		if (self.__debug_on == 1):
+			cv2.imshow('QR code', image)
+			k = cv2.waitKey(100)		
+		return QR_code_properties

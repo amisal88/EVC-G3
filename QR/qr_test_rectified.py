@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 import RPi.GPIO as gp
 import pickle
+import math
 
 def intersect(l1, l2):
 	delta = np.array([l1[1] - l1[0], l2[1] - l2[0]]).astype(np.float32)
@@ -62,7 +63,7 @@ def qr_code_outer_corners(image):
 				for id_ in ids:
 					cnt = contours[id_]
 					apprx = \
-						cv2.approxPolyDP(cnt, cv2.arcLength(cnt, True) * 0.02, True)
+						cv2.approxPolyDP(cnt, cv2.arcLength(cnt, True) * 0.06, True)
 					if len(apprx) == 4:
 						corner_cnts.append(apprx.reshape((4, -1)))
 				if len(corner_cnts) == 3:
@@ -70,8 +71,7 @@ def qr_code_outer_corners(image):
 					all_pts = np.array(corner_cnts).reshape(-1, 2)
 					
 					centers.append(np.mean(all_pts, 0))
-	print centers
-	print("\n")
+
 	
 	if len(centers) == 3:		
 		distances_between_pts = np.linalg.norm(np.roll(centers, 1, 0) - centers, axis=1)
@@ -137,13 +137,11 @@ gp.output(7, False)
 gp.output(11, False)
 gp.output(12, True)
 
-file = open('Left_Stereo_Map_file.txt', 'r')
-Left_Stereo_Map = pickle.load(file)
-file.close()
-
-file = open('Right_Stereo_Map_file.txt', 'r')
-Right_Stereo_Map = pickle.load(file)
-file.close()
+DIM=(640, 480)
+KL=np.array([[310.89487794241705, 0.0, 310.4701490632405], [0.0, 311.6045360428195, 217.332401108332], [0.0, 0.0, 1.0]])
+DL=np.array([[-0.02678943147680496], [0.07199621192297553], [-0.17537795442931486], [0.1224981141497315]])
+KR=np.array([[311.9993342853497, 0.0, 288.39779549515345], [0.0, 312.9238338162564, 233.89810329394894], [0.0, 0.0, 1.0]])
+DR=np.array([[-0.035125623121583065], [0.0721407010760906], [-0.1341791663672435], [0.07146034215266592]])
 
 # initialize the camera and grab a reference to the raw camera capture
 camera = PiCamera()
@@ -157,9 +155,10 @@ while True:
 	# grab an image from the camera
 	camera.capture(rawCapture, format="bgr")
 	image_in = rawCapture.array
-	image= cv2.remap(image_in,Right_Stereo_Map[0],Right_Stereo_Map[1], cv2.INTER_LANCZOS4, cv2.BORDER_CONSTANT, 0)
+	map1R, map2R = cv2.fisheye.initUndistortRectifyMap(KR, DR, np.eye(3), KR, DIM, cv2.CV_16SC2)
+	image = cv2.remap(image_in, map1R, map2R, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
 	result, corners = qr_code_outer_corners(image)
-	#print corners
+	
 	qr_code_size = 100
 	
 	if result:
@@ -168,18 +167,36 @@ while True:
 			
 			cv2.circle(image, tuple(corners[0]), 15, (0, 255, 0), 2)
 			cv2.circle(image, tuple(corners[1]), 15, (0, 0, 255), 2)
-			cv2.circle(image, tuple(corners[2]), 15, (255, 0, 0), 2)
-			cv2.circle(image, tuple(corners[3]), 15, (255, 255, 0), 2)
+			#cv2.circle(image, tuple(corners[2]), 15, (255, 0, 0), 2)
+			#cv2.circle(image, tuple(corners[3]), 15, (255, 255, 0), 2)
+			angle = (math.atan((float)((corners[0][1]-corners[1][1]))/((float)(corners[1][0]-corners[0][0])))*180/math.pi)
+			#print ((float)((corners[0][1]-corners[1][1]))/((float)(corners[1][0]-corners[0][0])))
+			#print (corners[0][1]-corners[1][1])
+                        #print (corners[1][0]-corners[0][0])
+			print angle
 			image.flags.writeable = True
 			image[0:qr_code_size, 0:qr_code_size] = rectified
 
-	cv2.imshow('QR code detection', image)
-	
-	k = cv2.waitKey(100)
-	# clear the stream in preparation for the next frame
-	rawCapture.truncate(0)
-	if k == 27:
-		break
+                barcodes = pyzbar.decode(rectified)
+
+                # loop over the detected barcodes
+                for barcode in barcodes:
+                        # extract the bounding box location of the barcode and draw the
+                        # bounding box surrounding the barcode on the image
+                 
+                        # the barcode data is a bytes object so if we want to draw it on
+                        # our output image we need to convert it to a string first
+                        barcodeData = barcode.data.decode("utf-8")
+                        barcodeType = barcode.type
+                 
+                        # print the barcode type and data to the terminal
+                        print("[INFO] Found {} barcode: {}".format(barcodeType, barcodeData).encode('utf-8'))
+        cv2.imshow('QR code', image)        
+        k = cv2.waitKey(100)
+        # clear the stream in preparation for the next frame
+        rawCapture.truncate(0)
+        if k == 27:
+                break
 
 vs.release()
 cv2.destroyAllWindows()
