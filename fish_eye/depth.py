@@ -20,9 +20,9 @@ def coords_mouse_disp(event,x,y,flags,param):
 				average += disp[y+u,x+v]
 		average=average/9
 		#Distance= -593.97*average**(3) + 1506.8*average**(2) - 1373.1*average + 522.06
-		Distance = (72*1.7)/average;
-		Distance= np.around(Distance*0.001,decimals=10)
-		print('Distance: '+ str(Distance)+' m')
+		Distance = (32*0.51)/average;
+		Distance= np.around(Distance,decimals=10)
+		print('Distance: '+ str(Distance)+' cm')
 		
 
 #********************************************

@@ -20,9 +20,10 @@ def coords_mouse_disp(event,x,y,flags,param):
 				average += disp[y+u,x+v]
 		average=average/9
 		#Distance= -593.97*average**(3) + 1506.8*average**(2) - 1373.1*average + 522.06
-		Distance = (72*1.7)/average;
-		Distance= np.around(Distance*0.001,decimals=2)
-		print('Distance: '+ str(Distance)+' m')
+		Distance = (32 * 0.51)/average;
+		print average
+		Distance= np.around(Distance,decimals=2)
+		print('Distance: '+ str(Distance)+' cm')
 		
 
 #********************************************
@@ -105,14 +106,14 @@ while True:
 	gp.output(7, False)
 	gp.output(11, False)
 	gp.output(12, True)
-	time.sleep(0.1)
+	time.sleep(2)
 	camera.capture(rawCapture, format="bgr")
 	frameR = rawCapture.array
 	rawCapture.truncate(0)
 	gp.output(7, False)
 	gp.output(11, True)
 	gp.output(12, False)
-	time.sleep(0.1)
+	time.sleep(2)
 	camera.capture(rawCapture, format="bgr")
 	frameL = rawCapture.array
 	rawCapture.truncate(0)
@@ -175,7 +176,7 @@ while True:
 	#cv2.imshow('Disparity', disp)
 	#cv2.imshow('Closing',closing)
 	#cv2.imshow('Color Depth',disp_Color)
-	cv2.imshow('Filtered Color Depth',filt_Color)
+	cv2.imshow('Filtered Color Depth',disp)
 	k = cv2.waitKey(100)
 
 	# Mouse click

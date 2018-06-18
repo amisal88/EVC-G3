@@ -24,8 +24,8 @@ gp.output(21, True)
 gp.output(22, True)
 
 gp.output(7, False)
-gp.output(11, False)
-gp.output(12, True)
+gp.output(11, True)
+gp.output(12, False)
 
 # initialize the camera and grab a reference to the raw camera capture
 camera = PiCamera()
