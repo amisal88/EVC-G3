@@ -1,6 +1,6 @@
 from time import sleep
-from numpy import inf
-from math import sqrt, sin, cos, atan
+from numpy import inf, random
+from math import sqrt, sin, cos, atan, pi
 from copy import deepcopy
 from statistics import median
 from enum import Enum
@@ -43,30 +43,10 @@ Assumed functions in Arduino:
 
 
 '''//------------------------------------------------------------------------//'
-''// temporary placeholders ------------------------------------------------//''
-'//------------------------------------------------------------------------//'''
-# temporary Vision placeholder ----------------------------------------------- #
-def getSurroundings():
-    Num_of_objects = 2
-    object_properties = {'name': 'bottle', 'probability': 0.0, 'position': (0,0), 'stdev_p': 0, 'rotation': 0.0 , 'stdev_r': 0.0}
-    objects_list = [object_properties for _ in range(Num_of_objects)]
-    return objects_list
-
-# temporary Arduino placeholders --------------------------------------------- #
-def getPosition():
-    print('Postion requested')
-    return Loc(0,0)
-
-def rotate(angle):
-    print('Rotate {} degrees'.format(angle))
-
-
-
-'''//------------------------------------------------------------------------//'
 ''// class definitions -----------------------------------------------------//''
 '//------------------------------------------------------------------------//'''
 # class location, used to store positions on the map ------------------------- #
-class Loc:
+class Loc(object):
     # class variables
     x = 0.0
     y = 0.0
@@ -76,31 +56,27 @@ class Loc:
         self.x = x
         self.y = y
     
-    # return string representation of loc
-    def getString(self):
-        return "({},{})".format(self.x, self.y)
+    # string generator
+    def __str__(self):
+        return "({:5.1f}, {:5.1f})".format(self.x, self.y)
 
 
 # class object, used for objects on the map ---------------------------------- #
-class Obj:
+class Obj(object):
     # class variables
-    sort = Enum("Type", "Cone Bottle Box")
     prob = 1.0
     pos = 0.0
     pdev = 0.0
     
     # constructor
-    def __init__(self, item):
-        self.sort = item['name']
-        if('probability' in item):
-            self.prob = item['probability']
-        else:
-            self.prob = 1.0
-        self.pos = Loc(item['position'][0], item['position'][1]) 
-        if('stdev_p' in item):
-            self.pdev = item['stdev_p']
-        else:
-            self.pdev = 0.0;
+    def __init__(self, prob, pos, pdev):
+        self.prob = prob
+        self.pos = pos
+        self.pdev = pdev
+    
+    # string generator
+    def __str__(self):
+        return "sort: {}\tprob: {}\tpos: {}\tpdev: {}".format(type(self), self.prob, self.pos, self.pdev)
     
     # remap object over distance vec, followed by rotation rot
     def remap(self, vec, rot):
@@ -124,10 +100,6 @@ class Obj:
         dst = self.dist(obj)
         magic = 1 + self.pdev + obj.pdev
         return dst / magic
-    
-    # debug print: print object variables
-    def debug(self):
-        print("sort: {}\tprob: {}\tpos: {}\tpdev: {}".format(self.sort, self.prob, self.pos.getString(), self.pdev))
 
 
 # class bottle, used to represent the corner bottles of the field -------------#
@@ -136,8 +108,13 @@ class Bottle(Obj):
     color = Enum("Color", "yellow orange blue purple")
     
     # constructor
-    def __init__(self, color):
+    def __init__(self, prob, pos, pdev, color):
+        super(Bottle, self).__init__(prob, pos, pdev) 
         self.color = color
+    
+    # string generator
+    def __str__(self):
+        return super(Bottle, self).__str__() + "\tcolor: {}".format(self.color)
     
     # getters/setters
     def getColor(self):
@@ -151,9 +128,14 @@ class Cone(Obj):
     boxesDone = False
     
     # constructor
-    def __init__(self):
+    def __init__(self, prob, pos, pdev):
+        super(Cone, self).__init__(prob, pos, pdev) 
         self.name = None
         self.boxesDone = False
+    
+    # string generator
+    def __str__(self):
+        return super(Cone, self).__str__() + "\tname: {}\tdone: {}".format(self.name, self.boxesDone)
     
     # getters/setters
     def getName(self):
@@ -179,8 +161,16 @@ class Box(Obj):
     delivered = False
     
     # constructor
-    def __init__(self, rot):
+    def __init__(self, prob, pos, pdev, rot):
+        super(Box, self).__init__(prob, pos, pdev) 
         self.rot = rot
+        self.origin = None
+        self.dest = None
+        self.delivered = False
+    
+    # string generator
+    def __str__(self):
+        return super(Box, self).__str__() + "\trot: {:5.3f}\torigin: {}\tdest: {}\tdelivered: {}".format(self.rot, self.origin, self.dest, self.delivered)
     
     # getters/setters
     def getRot(self):
@@ -202,13 +192,13 @@ class Box(Obj):
 
 
 # class map, our virtual map of the surroundings ----------------------------- #
-class Map:
+class Map(object):
     # class variables
     objs = []
     
     # constructor
     def __init__(self):
-        print "new map created, yay"
+        objs = []
     
     # find match between objects on map and new object. If no match found, return false
     def findMatch(self, obj):
@@ -227,16 +217,98 @@ class Map:
         self.objs.append(obj)
     
     # debug print: print all objects
-    def debug(self):
-        print("Objs:")
+    def debugPrint(self):
         for obj in self.objs:
-            obj.debug()
+            print(obj)
+
+
+
+'''//------------------------------------------------------------------------//'
+''// placeholders & debug map ----------------------------------------------//''
+'//------------------------------------------------------------------------//'''
+# create debug map
+debugmap = Map()
+xmin = 0.0
+xmax = random.randint(500, 1000)
+ymin = 0.0
+ymax = random.randint(700, 1000)
+debugmap.add(Bottle(1.0, Loc(xmin, ymin), 0.0, 'yellow'))
+debugmap.add(Bottle(1.0, Loc(xmin, ymax), 0.0, 'orange'))
+debugmap.add(Bottle(1.0, Loc(xmax, ymax), 0.0, 'blue'))
+debugmap.add(Bottle(1.0, Loc(xmax, ymin), 0.0, 'purple'))
+
+names = ['Inaki', 'Oudman', 'Amin', 'Random']
+
+for i in range(4):
+    x = random.randint(100, xmax-100)
+    y = random.randint(100, ymax-100)
+    cone = Cone(1.0, Loc(x, y), 0.0)
+    cone.setName(names[i])
+    debugmap.add(cone)
+    n = random.randint(0, 2)
+    for j in range(n):
+        xp = random.randint(x-25, x+25)
+        yp = random.randint(y-25, y+25)
+        rot = 2*pi*random.rand()
+        dest = random.randint(0,2)
+        box = Box(1.0, Loc(xp, yp), 0.0, rot)
+        box.setData(names[i], names[dest])
+        debugmap.add(box)
+
+print("Debug map created:")
+debugmap.debugPrint()
+sleep(10)
+print("Continue...")
+
+
+
+# temporary Vision placeholder ----------------------------------------------- #
+def getSurroundings():
+    minBottle = {'name': 'bottle', 'position': (0.0), 'color': 'yellow'}
+    maxBottle = {'name': 'bottle', 'probability': 1.0, 'position': (0.0), 'stdev_p': 0.0, 'color': 'yellow'}
+    minCone = {'name': 'cone', 'position': (0.0)}
+    maxCone = {'name': 'cone', 'probability': 1.0, 'position': (0.0), 'stdev_p': 0.0}
+    minBox = {'name': 'box', 'position': (0.0), 'rot': 0.0}
+    maxBox = {'name': 'box', 'probability': 1.0, 'position': (0.0), 'stdev_p': 0.0, 'rot': 0.0}
+    objects_list = [minBottle, maxBottle, minCone, maxCone, minBox, maxBox]
+    return objects_list
+
+# temporary Arduino placeholders --------------------------------------------- #
+def getPosition():
+    print('Postion requested')
+    return Loc(0,0)
+
+def rotate(angle):
+    print('Rotate {} degrees'.format(angle))
 
 
 
 '''//------------------------------------------------------------------------//'
 ''// other functions -------------------------------------------------------//''
 '//------------------------------------------------------------------------//'''
+# parses input from functional to nice object
+def parse(item):
+    if('probability' in item):
+        prob = item['probability']
+    else:
+        prob = 1.0
+    pos = Loc(item['position'][0], item['position'][1]) 
+    if('stdev_p' in item):
+        pdev = item['stdev_p']
+    else:
+        pdev = 0.0
+    if item['name'] == 'bottle':
+        color = item['color']
+        return Bottle(prob, pos, pdev, color)
+    elif item['name'] == 'cone':
+        return Cone(prob, pos, pdev)
+    elif item['name'] == 'box':
+        rot = item['rot']
+        return Box(prob, pos, pdev, rot)
+    else:
+        print("Parsing error") 
+
+
 # return best fitting rotation for objects objs on map imap in range (rot-dev) to (rot+dev)
 def imapRotFit(imap, rot, dev, objs):
     rotp = []
@@ -258,13 +330,6 @@ def imapRotFit(imap, rot, dev, objs):
 
 
 '''//------------------------------------------------------------------------//'
-''// main code, part 0: creating debug map -------------------------------//''
-'//------------------------------------------------------------------------//'''
-# TODO
-
-
-
-'''//------------------------------------------------------------------------//'
 ''// main code, part I: creating initial map -------------------------------//''
 '//------------------------------------------------------------------------//'''
 # create empty initial map
@@ -275,10 +340,10 @@ environment = getSurroundings()
 
 # place objects on map
 for i in environment:
-    imap.add(Obj(i))
+    imap.add(parse(i))
 
 print("debug stuff:")
-imap.debug()
+imap.debugPrint()
 sleep(10)
 print("continueing")
 
@@ -293,7 +358,7 @@ for rot in range(step, 360, step):
     objs = []
     environment = getSurroundings()
     for i in environment:
-        objs.append(Obj(i))
+        objs.append(parse(i))
     
     # adjust assumed rotation rot to rot'
     rotp = imapRotFit(imap, rot, step/2, objs)
