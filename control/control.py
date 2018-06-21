@@ -1,3 +1,4 @@
+from time import sleep
 from numpy import inf
 from math import sqrt, sin, cos, atan
 from copy import deepcopy
@@ -54,7 +55,7 @@ def getSurroundings():
 # temporary Arduino placeholders --------------------------------------------- #
 def getPosition():
     print('Postion requested')
-    return loc(0,0)
+    return Loc(0,0)
 
 def rotate(angle):
     print('Rotate {} degrees'.format(angle))
@@ -65,7 +66,7 @@ def rotate(angle):
 ''// class definitions -----------------------------------------------------//''
 '//------------------------------------------------------------------------//'''
 # class location, used to store positions on the map ------------------------- #
-class loc:
+class Loc:
     # class variables
     x = 0.0
     y = 0.0
@@ -74,16 +75,19 @@ class loc:
     def __init__(self, x, y):
         self.x = x
         self.y = y
+    
+    # return string representation of loc
+    def getString(self):
+        return "({},{})".format(self.x, self.y)
+
 
 # class object, used for objects on the map ---------------------------------- #
-class obj:
+class Obj:
     # class variables
     sort = Enum("Type", "Cone Bottle Box")
-    prob = 0.0
-    pos = loc(0.0, 0.0)
+    prob = 1.0
+    pos = 0.0
     pdev = 0.0
-    rot = 0.0
-    rdev = 0.0
     
     # constructor
     def __init__(self, item):
@@ -92,14 +96,11 @@ class obj:
             self.prob = item['probability']
         else:
             self.prob = 1.0
-        self.pos = loc(item['position'][0], item['position'][1]) 
+        self.pos = Loc(item['position'][0], item['position'][1]) 
         if('stdev_p' in item):
             self.pdev = item['stdev_p']
         else:
             self.pdev = 0.0;
-        if('rotation' in item):
-            self.rot = item['rotation']
-            self.rdev = item['stdev_r']
     
     # remap object over distance vec, followed by rotation rot
     def remap(self, vec, rot):
@@ -111,7 +112,7 @@ class obj:
         self.pos -= pos
         newx = self.pos.x * cos(angle) + self.pos.y * sin(angle) 
         newy = self.pos.x * -sin(angle) + self.pos.y * cos(angle)
-        self.pos = loc(newx, newy)
+        self.pos = Loc(newx, newy)
         self.rot -= angle
     
     # calculate distance between object and other object
@@ -123,10 +124,85 @@ class obj:
         dst = self.dist(obj)
         magic = 1 + self.pdev + obj.pdev
         return dst / magic
+    
+    # debug print: print object variables
+    def debug(self):
+        print("sort: {}\tprob: {}\tpos: {}\tpdev: {}".format(self.sort, self.prob, self.pos.getString(), self.pdev))
+
+
+# class bottle, used to represent the corner bottles of the field -------------#
+class Bottle(Obj):
+    # class variables
+    color = Enum("Color", "yellow orange blue purple")
+    
+    # constructor
+    def __init__(self, color):
+        self.color = color
+    
+    # getters/setters
+    def getColor(self):
+        return self.color
+
+
+# class cone, used to represent the cones in the field ------------------------#
+class Cone(Obj):
+    # class variables
+    name = None
+    boxesDone = False
+    
+    # constructor
+    def __init__(self):
+        self.name = None
+        self.boxesDone = False
+    
+    # getters/setters
+    def getName(self):
+        return self.name
+    
+    def setName(self, name):
+        self.name = name
+    
+    def setBoxesDone(self):
+        self.boxesDone = True
+    
+    # returns true if the robot still has to visit the cone
+    def toVisit(self):
+        return self.name == None or not boxesDone
+
+
+# class box, used to represent the boxes in the field -------------------------#
+class Box(Obj):
+    # class variables
+    rot = 0.0
+    origin = None
+    dest = None
+    delivered = False
+    
+    # constructor
+    def __init__(self, rot):
+        self.rot = rot
+    
+    # getters/setters
+    def getRot(self):
+        return self.rot
+    
+    def getDest(self):
+        return self.dest
+    
+    def isDelivered(self):
+        return self.delivered
+    
+    def setData(self, origin, dest):
+        self.origin = origin
+        self.dest = dest
+        self.delivered = False
+    
+    def setDelivered(self):
+        self.delivered = True
 
 
 # class map, our virtual map of the surroundings ----------------------------- #
-class plan:
+class Map:
     # class variables
     objs = []
     
@@ -149,13 +225,19 @@ class plan:
     # add new objects to the map
     def add(self, obj):
         self.objs.append(obj)
+    
+    # debug print: print all objects
+    def debug(self):
+        print("Objs:")
+        for obj in self.objs:
+            obj.debug()
 
 
 
 '''//------------------------------------------------------------------------//'
 ''// other functions -------------------------------------------------------//''
 '//------------------------------------------------------------------------//'''
-# return best fitting rotation for environment env in range (rot-dev) to (rot+dev)
+# return best fitting rotation for objects objs on map imap in range (rot-dev) to (rot+dev)
 def imapRotFit(imap, rot, dev, objs):
     rotp = []
     for obj in objs:
@@ -163,7 +245,7 @@ def imapRotFit(imap, rot, dev, objs):
         dst = sqrt(obj.pos.x**2 + obj.pos.y**2)
         if (dst > 0):
             alp = atan(obj.pos.x / obj.pos.y)
-            match = imap.findMatch({'name': obj.sort, 'position': loc(dst * sin(alp+rot), dst * cos(alp+rot))})
+            match = imap.findMatch({'name': obj.sort, 'position': Loc(dst * sin(alp+rot), dst * cos(alp+rot))})
             if(match == False):
                 print("No match found :(")
             else:
@@ -176,17 +258,29 @@ def imapRotFit(imap, rot, dev, objs):
 
 
 '''//------------------------------------------------------------------------//'
+''// main code, part 0: creating debug map -------------------------------//''
+'//------------------------------------------------------------------------//'''
+# TODO
+
+
+
+'''//------------------------------------------------------------------------//'
 ''// main code, part I: creating initial map -------------------------------//''
 '//------------------------------------------------------------------------//'''
 # create empty initial map
-imap = plan()
+imap = Map()
 
 # get environment
 environment = getSurroundings()
 
 # place objects on map
 for i in environment:
-    imap.add(obj(i))
+    imap.add(Obj(i))
+
+print("debug stuff:")
+imap.debug()
+sleep(10)
+print("continueing")
 
 # rotation settings
 steps = 12
@@ -199,13 +293,15 @@ for rot in range(step, 360, step):
     objs = []
     environment = getSurroundings()
     for i in environment:
-        objs.append(obj(i))
+        objs.append(Obj(i))
     
     # adjust assumed rotation rot to rot'
     rotp = imapRotFit(imap, rot, step/2, objs)
     
     # remap position of observed objects to coordinate system of map
-    # TODO
+    for obj in objs:
+        obj.inverseremap(0.0, rotp)
+    
     
     # update map
     # TODO
