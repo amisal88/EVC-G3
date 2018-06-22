@@ -41,14 +41,15 @@ Assumed functions in Arduino:
   Move to new position at angle alpha at distance distance, end up at rotation
   beta
 - grab(gnum)
-  Open gripper gnum if necessary, lower gripper arm, close gripper gnum, raise 
+  Open gripper gnum if necessary, lower gripper arm, close gripper gnum, raise
   gripper arm
 - drop(gnum)
   Lower gripper arm, open gripper gnum, raise gripper arm
 '''
 
-
-DEBUG = True
+# debug settings ------------------------------------------------------------- #
+DEBUG = True    # print debug
+ADVANCED = True # give incorrect input
 
 
 
@@ -60,12 +61,12 @@ class Loc(object):
     # class variables
     # x = 0.0
     # y = 0.0
-    
+
     # constructor
     def __init__(self, x, y):
         self.x = float(x)
         self.y = float(y)
-    
+
     # string generator
     def __str__(self):
         return "({:5.1f}, {:5.1f})".format(self.x, self.y)
@@ -78,37 +79,30 @@ class Obj(object):
     # views = 0
     # pos = Loc(0.0, 0.0)
     # pdev = 0.0
-    
+
     # constructor
     def __init__(self, prob, pos, pdev):
         self.prob = prob
         self.views = 1
         self.pos = pos
         self.pdev = pdev
-    
+
     # string generator
     def __str__(self):
         return "sort: {}\tprob: {}\tpos: {}\tpdev: {}".format(type(self), self.prob, self.pos, self.pdev)
-    
-    # remap object over distance vec, followed by rotation rot
+
+    # remap object over distance vec, followed by rotation rot over (0.0, 0.0)
     def remap(self, vec, rot):
-        self.pos += vec
-        self.rot += rot
-    
-    # remap object as if origin was pos instead of (0,0) and if angle was rot instead of 0
-    def inverseremap(self, pos, angle):
-        self.pos -= pos
-        newx = self.pos.x * cos(angle) + self.pos.y * sin(angle) 
-        newy = self.pos.x * -sin(angle) + self.pos.y * cos(angle)
+        newx = self.pos.x * cos(rot) + self.pos.y * sin(rot)
+        newy = self.pos.x * -sin(rot) + self.pos.y * cos(rot)
         self.pos = Loc(newx, newy)
-        self.rot -= angle
-    
+
     # calculate distance between object and other object
-    def dist(self, obj):
+    def getDist(self, obj):
         return sqrt((self.pos.x - obj.pos.x)**2 + (self.pos.y - obj.pos.y)**2)
-    
+
     # calculate angle between object and other object
-    def angle(self, obj):
+    def getAngle(self, obj):
         dx = float(obj.pos.x - self.pos.x)
         dy = float(obj.pos.y - self.pos.y)
         if dx == 0 and dy == 0:
@@ -123,10 +117,10 @@ class Obj(object):
             return atan(dx / dy) + pi
         else:
             return atan(dx / dy) - pi
-    
+
     # calculate matching error between object and other object
     def matchError(self, obj):
-        dst = self.dist(obj)
+        dst = self.getDist(obj)
         magic = 1 + self.pdev + obj.pdev
         return dst / magic
 
@@ -135,16 +129,16 @@ class Obj(object):
 class Bottle(Obj):
     # class variables
     # color = Enum("Color", "yellow orange blue purple")
-    
+
     # constructor
     def __init__(self, prob, pos, pdev, color):
-        super(Bottle, self).__init__(prob, pos, pdev) 
+        super(Bottle, self).__init__(prob, pos, pdev)
         self.color = color
-    
+
     # string generator
     def __str__(self):
         return super(Bottle, self).__str__() + "\tcolor: {}".format(self.color)
-    
+
     # getters/setters
     def getColor(self):
         return self.color
@@ -155,27 +149,27 @@ class Cone(Obj):
     # class variables
     # name = None
     # boxesDone = False
-    
+
     # constructor
     def __init__(self, prob, pos, pdev):
-        super(Cone, self).__init__(prob, pos, pdev) 
+        super(Cone, self).__init__(prob, pos, pdev)
         self.name = None
         self.boxesDone = False
-    
+
     # string generator
     def __str__(self):
         return super(Cone, self).__str__() + "\tname: {}\tdone: {}".format(self.name, self.boxesDone)
-    
+
     # getters/setters
     def getName(self):
         return self.name
-    
+
     def setName(self, name):
         self.name = name
-    
+
     def setBoxesDone(self):
         self.boxesDone = True
-    
+
     # returns true if the robot still has to visit the cone
     def toVisit(self):
         return self.name == None or not boxesDone
@@ -188,34 +182,39 @@ class Box(Obj):
     # origin = None
     # dest = None
     # delivered = False
-    
+
     # constructor
     def __init__(self, prob, pos, pdev, rot):
-        super(Box, self).__init__(prob, pos, pdev) 
+        super(Box, self).__init__(prob, pos, pdev)
         self.rot = rot
         self.origin = None
         self.dest = None
         self.delivered = False
-    
+
+    # remap object over distance vec, followed by rotation rot over (0.0, 0.0)
+    def remap(self, vec, rot):
+        super(Box, self).remap(vec, rot)
+        self.rot += rot
+
     # string generator
     def __str__(self):
         return super(Box, self).__str__() + "\trot: {:5.3f}\torigin: {}\tdest: {}\tdelivered: {}".format(self.rot, self.origin, self.dest, self.delivered)
-    
+
     # getters/setters
     def getRot(self):
         return self.rot
-    
+
     def getDest(self):
         return self.dest
-    
+
     def isDelivered(self):
         return self.delivered
-    
+
     def setData(self, origin, dest):
         self.origin = origin
         self.dest = dest
         self.delivered = False
-    
+
     def setDelivered(self):
         self.delivered = True
 
@@ -224,39 +223,74 @@ class Box(Obj):
 class Map(object):
     # class variables
     # objs = []
-    
+
     # constructor
     def __init__(self):
         self.objs = []
-    
+
     # getters/setters
     def setSize(self, x, y):
         self.width = x
         self.length = y
-    
+
     # add new objects to the map
     def add(self, obj):
         self.objs.append(obj)
-    
+
     # find match between objects on map and new object. If no match found, return false
     def findMatch(self, obj):
         minerr = inf
         match = False
-        for i in objs:
+        for i in self.objs:
             if type(i) == type(obj):
-                err = matchError(i, obj)
+                err = i.matchError(obj)
                 if (err < minerr):
                     minerr = err
                     match = i
         return match
-    
+
+    # duplicates map, with all elements shifted over distance pos, then rotated
+    # by rot radians over point (0.0, 0.0)
+    def getShiftedCopy(self, pos, rot):
+        copy = Map()
+        for obj in self.objs:
+            tmp = deepcopy(obj)
+            tmp.remap(pos, rot)
+            copy.add(tmp)
+        return copy
+
+    # returns best rotational fit for map B on map A. Arguments: self = map A;
+    # mapb = map B, pos = loc shift of map B on map A; rot = rotation finding
+    # starting point, rdev = maximum deviation of rotational fit
+    def getRotFit(self, mapb, pos, rot, rdev):
+        copy = mapb.getShiftedCopy(pos, rot)
+        zero = Obj(0.0, Loc(0.0, 0.0), 0.0)
+        rdif = []
+        for obj in copy.objs:
+            match = self.findMatch(obj)
+            if match:
+                rota = zero.getAngle(match)
+                rotb = zero.getAngle(obj)
+                rdif.append(rotb-rota)
+        if len(rdif):
+            return rot + median(rdif)
+        else:
+            return rot
+
+    # returns best location shift fit for map B on map A. Arguments: self = map
+    # A; # mapb = map B, pos = location shift starting point; pdev = maximum
+    # location shift; rot = rotational shift of map B on map A
+    def getPosFit(self, mapb, pos, pdev, rot):
+        print("TODO")
+        return Loc(0.0, 0.0)
+
     # Fit a second map to the first map, return combined map. Starting point of
     # alignment is position (0,0) on map B mapped on map A, rotated by rot
     # radians. Maximum position deviation is fixed to pdev, maximum rotation
     # deviation is fixed to rdev
     def combine(self, mapb, pos, pdev, rot, rdev):
         print("TODO")
-    
+
     # debug print: print all objects
     def debugPrint(self, nice=False, xx=None, xy=None):
         for obj in self.objs:
@@ -302,7 +336,7 @@ class Map(object):
 '''//------------------------------------------------------------------------//'
 ''// test map & vision + Arduino placeholders ------------------------------//''
 '//------------------------------------------------------------------------//'''
-# create test map
+# create test map ------------------------------------------------------------ #
 debugmap = Map()
 xmin = 0.0
 xmax = random.randint(500, 1000)
@@ -338,42 +372,62 @@ robot = Obj(1.0, Loc(robotx, roboty), 0.0)
 if DEBUG:
     print("Debug map created:")
     debugmap.debugPrint(True, robotx, roboty)
-    print("Robot placed at position ({}, {}) with rotation {:5.3}\n\n".format(robotx, roboty, robotrot))
+    print("Robot placed at position ({}, {}) with rotation {:5.3}\n".format(robotx, roboty, robotrot))
 
-# vision thread placeholder, uses debug map----------------------------------- #
+
+# vision thread placeholder, uses test map ----------------------------------- #
 def getSurroundings():
     print("getSurroundings()")
     objects_list = []
     for obj in debugmap.objs:
-        dist = robot.dist(obj)
-        angle = (robot.angle(obj) - robotrot + pi) % (2*pi) - pi
-        if angle > (-pi/3) and angle < (pi/3):
+        dist = robot.getDist(obj)
+        angle = (robot.getAngle(obj) - robotrot + pi) % (2*pi) - pi
+        if angle > (-pi/3) and angle < (pi/3) and not isinstance(obj, Box):
             if DEBUG:
-                print("Object in sight, dist: {:5.1f}, angle: {:6.2f}".format(dist, angle))
-            posx = dist * sin(angle)
-            posy = dist * cos(angle)
-            if isinstance(obj, Bottle):
-                if obj.pos.x == 0.0 and obj.pos.y == 0:
-                    color = 'yellow'
-                elif obj.pos.x == 0.0:
-                    color = 'orange'
-                elif obj.pos.y == 0.0:
-                    color = 'purple'
+                print("\tObject in sight? Dist: {:5.1f}, angle: {:5.2f}.".format(dist, angle))
+            rnd = random.rand()
+            if not ADVANCED or 250/dist >= rnd:
+                if ADVANCED:
+                    prob = 0.8
+                    magic = 25/(dist+25)
+                    angle += (magic*random.rand() - magic/2)
+                    magic = (dist/1250)**2+0.1
+                    dist = (1 + magic*random.rand() - magic/2) * dist
+                    pdev = magic*dist/2+10
                 else:
-                    color = 'blue'
-                objects_list.append({'name': 'bottle', 'probability': 1.0, 'position': (posx,posy), 'stdev_p': 0.0, 'color': color})
-            elif isinstance(obj, Cone):
-                objects_list.append({'name': 'cone', 'probability': 1.0, 'position': (posx,posy), 'stdev_p': 0.0})
+                    prob = 1.0
+                    pdev = 0.0
+                print("\t\tYes, observed at dist {:5.1f} and angle {:5.2f} ({:4.2} > {:4.2})".format(dist, angle, 250/dist, rnd))
+                posx = dist * sin(angle)
+                posy = dist * cos(angle)
+                if isinstance(obj, Bottle):
+                    if obj.pos.x == 0.0 and obj.pos.y == 0:
+                        color = 'yellow'
+                    elif obj.pos.x == 0.0:
+                        color = 'orange'
+                    elif obj.pos.y == 0.0:
+                        color = 'purple'
+                    else:
+                        color = 'blue'
+                    objects_list.append({'name': 'bottle', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev, 'color': color})
+                elif isinstance(obj, Cone):
+                    objects_list.append({'name': 'cone', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev})
+            else:
+                print("\t\tNope, too cloudy ({:4.2} < {:4.2})".format(250/dist, rnd))
+    if DEBUG:
+        print("")
     return objects_list
+
 
 # Arduino placeholder -------------------------------------------------------- #
 def getPosition():
     print('Postion requested')
     return Loc(0,0)
 
-# Arduino placeholder -------------------------------------------------------- #
+
+# Arduino placeholder, uses test map ----------------------------------------- #
 def rotate(angle):
-    print('Rotate by {} radians\n\n'.format(angle))
+    print('Rotate by {} radians\n'.format(angle))
     global robotrot
     robotrot += angle
 
@@ -388,7 +442,7 @@ def parse(item):
         prob = item['probability']
     else:
         prob = 1.0
-    pos = Loc(item['position'][0], item['position'][1]) 
+    pos = Loc(item['position'][0], item['position'][1])
     if('stdev_p' in item):
         pdev = item['stdev_p']
     else:
@@ -402,26 +456,8 @@ def parse(item):
         rot = item['rot']
         return Box(prob, pos, pdev, rot)
     else:
-        print("Parsing error") 
+        print("Parsing error")
 
-
-# return best fitting rotation for objects objs on map imap in range (rot-dev) to (rot+dev)
-def imapRotFit(imap, rot, dev, objs):
-    rotp = []
-    for obj in objs:
-        print obj.pos
-        dst = obj.dist(Obj(0.0, Loc(0.0, 0.0), 0.0))
-        if (dst > 0):
-            alp = atan(obj.pos.x / obj.pos.y)
-            match = imap.findMatch(Obj(0.0, Loc(dst * sin(alp+rot), dst * cos(alp+rot)), 0.0))
-            if(match == False):
-                print("No match found :(")
-            else:
-                deg = atan(match.pos.x / match.pos.y) - rot
-                print("Match found, {} degrees off")
-                if(abs(deg) < dev):
-                    rotp.append(deg)
-    return median(rotp)
 
 
 
@@ -441,7 +477,7 @@ for i in environment:
 if DEBUG:
     print("Initial map created:")
     imap.debugPrint(True, 0, 0)
-    print("Robot at (0.0, 0.0) with rotation 0.0\n\n")
+    print("Robot at (0.0, 0.0) with rotation 0.0\n")
 
 # rotation settings
 steps = 12
@@ -452,29 +488,30 @@ rotate(step)
 rot = step
 while (rot < 2 * pi):
     # get environment
-    objs = []
+    new = Map()
     environment = getSurroundings()
     for i in environment:
-        objs.append(parse(i))
-    
+        new.add(parse(i))
+
     # adjust assumed rotation rot to rot'
-    rotp = imapRotFit(imap, rot, step/2, objs)
-    
+    rotp = imap.getRotFit(new, 0.0, rot, step/2)
+    print("Observed rotation: {}".format(rotp))
+    sleep(10)
+
     # remap position of observed objects to coordinate system of map
-    for obj in objs:
-        obj.inverseremap(0.0, rotp)
-    
+    # TODO
+
     # update map
     # TODO
-    
+
     # rotate by step degrees, adjust for rotp
     rotate(step + (rot-rotp))
     rot += step
-    
+
     if DEBUG:
         print("Updated map")
         imap.debugPrint(True, 0, 0)
-        print("Robot at (0.0, 0.0) with rotation {}\n\n".format(rotp))
+        print("Robot at (0.0, 0.0) with rotation {}\n".format(rotp))
         sleep(10)
 
 
@@ -520,7 +557,7 @@ Also, we have a list of boxes held by the robot, having per box
     # if at delivery address
         # drop box
     # if at cone with undelivered boxes
-        # pickup box        
+        # pickup box
 
 
 
