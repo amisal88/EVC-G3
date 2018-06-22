@@ -48,8 +48,10 @@ Assumed functions in Arduino:
 '''
 
 # debug settings ------------------------------------------------------------- #
-DEBUG = True    # print debug
+DEBUG = 1       # debug print level: 0 = off, 1 = basic, 2 = medium, 3 = all
 ADVANCED = True # give incorrect input
+XSCALE = 10     # a terminal character width represents XSCALE centimeters 
+YSCALE = 22     # a terminal character height represents YSCALE centimeters
 
 
 
@@ -70,6 +72,36 @@ class Loc(object):
     # string generator
     def __str__(self):
         return "({:5.1f}, {:5.1f})".format(self.x, self.y)
+
+    # calculate distance between loc and self
+    def getDist(self, loc):
+        return sqrt((self.x - loc.x)**2 + (self.y - loc.y)**2)
+
+    # calculate angle between loc and self
+    def getAngle(self, loc=None):
+        if loc == None:
+            dx = self.x
+            dy = self.y
+        else:
+            dx = float(self.x - loc.x)
+            dy = float(self.y - loc.y)
+        if dx == 0 and dy == 0:
+            return 0.0
+        elif dx == 0:
+            return pi * (dy < 0)
+        elif dy == 0:
+            return pi * (dx > 0) - pi/2
+        elif dy > 0:
+            return atan(dx / dy)
+        elif dx > 0:
+            return atan(dx / dy) + pi
+        else:
+            return atan(dx / dy) - pi
+
+    # created weighted average location
+    def wavg(self, loc, w):
+        iw = 1 - w
+        return Loc(w*self.x+iw*loc.x, w*self.y+iw*loc.y)
 
 
 # class object, used for objects on the map ---------------------------------- #
@@ -98,31 +130,42 @@ class Obj(object):
         self.pos = Loc(newx, newy)
 
     # calculate distance between object and other object
-    def getDist(self, obj):
-        return sqrt((self.pos.x - obj.pos.x)**2 + (self.pos.y - obj.pos.y)**2)
+    def getDist(self, obj=None):
+        if obj==None:
+            return self.pos.getDist(Loc(0.0, 0.0))
+        else:
+            return self.pos.getDist(obj.pos)
 
     # calculate angle between object and other object
-    def getAngle(self, obj):
-        dx = float(obj.pos.x - self.pos.x)
-        dy = float(obj.pos.y - self.pos.y)
-        if dx == 0 and dy == 0:
-            return 0.0
-        elif dy == 0:
-            return pi * (dx > 0)
-        elif dx == 0:
-            return pi * (dy > 0) - pi/2
-        elif dy > 0:
-            return atan(dx / dy)
-        elif dx > 0:
-            return atan(dx / dy) + pi
+    def getAngle(self, obj=None):
+        if obj==None:
+            return self.pos.getAngle(Loc(0.0, 0.0))
         else:
-            return atan(dx / dy) - pi
+            return self.pos.getAngle(obj.pos)
 
     # calculate matching error between object and other object
     def matchError(self, obj):
+        if type(self) != type(self):
+            return inf
+        if isinstance(self, Bottle) and self.color != obj.color:
+            return inf
+        if isinstance(self, Cone) and self.name != None and obj.name != None and self.name != obj.name:
+            return inf
         dst = self.getDist(obj)
         magic = 1 + self.pdev + obj.pdev
         return dst / magic
+
+    # update self with object obj
+    def update(self, obj):
+        if self.matchError(obj) == inf:
+            print("No merge update possible")
+            return False
+        # TODO: do advanced stuff with the prob parameter
+        weight = self.views / (self.views+obj.views) # TODO: make more advanced weight function that includes ao pdev
+        self.pos = self.pos.wavg(obj.pos, weight)
+        self.views += obj.views
+        # TODO: update subclass variables
+        return True
 
 
 # class bottle, used to represent the corner bottles of the field -------------#
@@ -239,7 +282,7 @@ class Map(object):
 
     # find match between objects on map and new object. If no match found, return false
     def findMatch(self, obj):
-        minerr = inf
+        minerr = 1 # TODO: tweak this value
         match = False
         for i in self.objs:
             if type(i) == type(obj):
@@ -264,13 +307,12 @@ class Map(object):
     # starting point, rdev = maximum deviation of rotational fit
     def getRotFit(self, mapb, pos, rot, rdev):
         copy = mapb.getShiftedCopy(pos, rot)
-        zero = Obj(0.0, Loc(0.0, 0.0), 0.0)
         rdif = []
         for obj in copy.objs:
             match = self.findMatch(obj)
             if match:
-                rota = zero.getAngle(match)
-                rotb = zero.getAngle(obj)
+                rota = match.pos.getAngle()
+                rotb = match.pos.getAngle()
                 rdif.append(rotb-rota)
         if len(rdif):
             return rot + median(rdif)
@@ -291,13 +333,20 @@ class Map(object):
     def combine(self, mapb, pos, pdev, rot, rdev):
         print("TODO")
 
+    # Update map with objects from given view
+    def update(self, view):
+        for obj in view.objs:
+            match = self.findMatch(obj)
+            if match:
+                match.update(obj)
+            else:
+                self.add(obj)
+
     # debug print: print all objects
     def debugPrint(self, nice=False, xx=None, xy=None):
         for obj in self.objs:
             print("{}\t{}".format(self.objs.index(obj), obj))
         if nice:
-            xscale = 16
-            yscale = 40
             xmin = xmax = 0.0
             ymin = ymax = 0.0
             posx = []
@@ -312,24 +361,71 @@ class Map(object):
                 posx.append(x)
                 posy.append(y)
             for i in range(0, len(posx)):
-                posx[i] = round((posx[i]-xmin)/xscale)
-                posy[i] = round((posy[i]-ymin)/yscale)
-            for y in range(int(round((ymax-ymin)/yscale)), -1, -1):
+                posx[i] = round((posx[i]-xmin)/XSCALE)
+                posy[i] = round((posy[i]-ymin)/YSCALE)
+            for y in range(int(round((ymax-ymin)/YSCALE)), -1, -1):
                 line = "\t"
-                for x in range(0, int(round((xmax-xmin)/xscale))+1):
+                for x in range(0, int(round((xmax-xmin)/XSCALE))+1):
                     match = False
                     for i in range(len(posx)):
                         if posx[i] == x and posy[i] == y:
                             idx = i
                             match = True
                             break
-                    if xx != None and xy != None and round((xx-xmin)/xscale) == x and round((xy-ymin)/yscale) == y:
+                    if xx != None and xy != None and round((xx-xmin)/XSCALE) == x and round((xy-ymin)/YSCALE) == y:
                         line += 'X'
                     elif match:
                         line += str(idx)
                     else:
-                        line += '.'
+                        line += '-'
                 print(line)
+
+
+# class view, map with robot at Loc(0.0, 0.0) and limited view --------------- #
+class View(Map):
+    # class variables
+    # rotl = -pi/3
+    # rotr = -pi/3
+    # depth = 500.0
+
+    # constructor
+    def __init__(self, rotl=-pi/3, rotr=pi/3, depth=800.0):
+        super(View, self).__init__()
+        self.rotl = rotl
+        self.rotr = rotr
+        self.depth = depth
+
+    # debug print: print all objects
+    def debugPrint(self, nice=False):
+        for obj in self.objs:
+            print("{}\t{}".format(self.objs.index(obj), obj))
+        if nice:
+            posx = []
+            posy = []
+            for obj in self.objs:
+                posx.append(round(obj.pos.x/XSCALE))
+                posy.append(round(obj.pos.y/YSCALE))
+            for y in range(int(round(self.depth/YSCALE)), -int(round(self.depth/YSCALE))-1, -1):
+                line = ""
+                for x in range(-int(round(self.depth/XSCALE)), int(round(self.depth/XSCALE))+1):
+                    match = False
+                    angle = Loc(x*XSCALE, y*YSCALE).getAngle()
+                    if (x*XSCALE)**2+(y*YSCALE)**2 <= self.depth**2 and angle > self.rotl and angle < self.rotr:
+                        for i in range(len(posx)):
+                            if posx[i] == x and posy[i] == y:
+                                idx = i
+                                match = True
+                                break
+                        if x == 0 and y == 0:
+                            line += 'X'
+                        elif match:
+                            line += str(idx)
+                        else:
+                            line += '-'
+                    else:
+                        line += ' '
+                if line.replace(" ", "") != "":
+                    print(line)
 
 
 
@@ -349,8 +445,14 @@ debugmap.add(Bottle(1.0, Loc(xmax, ymin), 0.0, 'purple'))
 names = ['Inaki', 'Oudman', 'Amin']
 boxes = 0
 for i in range(3):
-    x = random.randint(50, xmax-50)
-    y = random.randint(50, ymax-50)
+    good = False
+    while not good:
+        x = random.randint(50, xmax-50)
+        y = random.randint(50, ymax-50)
+        good = True
+        for obj in debugmap.objs:
+            if obj.pos.getDist(Loc(x, y)) < 200:
+                good = False
     cone = Cone(1.0, Loc(x, y), 0.0)
     cone.setName(names[i])
     debugmap.add(cone)
@@ -372,18 +474,20 @@ robot = Obj(1.0, Loc(robotx, roboty), 0.0)
 if DEBUG:
     print("Debug map created:")
     debugmap.debugPrint(True, robotx, roboty)
-    print("Robot placed at position ({}, {}) with rotation {:5.3}\n".format(robotx, roboty, robotrot))
+    print("Robot placed at position ({}, {}) with rotation {:5.3f}\n".format(robotx, roboty, robotrot))
 
 
 # vision thread placeholder, uses test map ----------------------------------- #
 def getSurroundings():
-    print("getSurroundings()")
+    if DEBUG >= 3:
+        print("getSurroundings()")
     objects_list = []
     for obj in debugmap.objs:
-        dist = robot.getDist(obj)
-        angle = (robot.getAngle(obj) - robotrot + pi) % (2*pi) - pi
+        dist = obj.getDist(robot)
+        angle = (obj.getAngle(robot) - robotrot + pi) % (2*pi) - pi
         if angle > (-pi/3) and angle < (pi/3) and not isinstance(obj, Box):
-            if DEBUG:
+            if DEBUG >= 3:
+                print("\tObject: {}".format(obj))
                 print("\tObject in sight? Dist: {:5.1f}, angle: {:5.2f}.".format(dist, angle))
             rnd = random.rand()
             if not ADVANCED or 250/dist >= rnd:
@@ -397,7 +501,8 @@ def getSurroundings():
                 else:
                     prob = 1.0
                     pdev = 0.0
-                print("\t\tYes, observed at dist {:5.1f} and angle {:5.2f} ({:4.2} > {:4.2})".format(dist, angle, 250/dist, rnd))
+                if DEBUG >= 3:
+                    print("\t\tYes, observed at dist {:5.1f} and angle {:5.2f} ({:4.2} > {:4.2})".format(dist, angle, 250/dist, rnd))
                 posx = dist * sin(angle)
                 posy = dist * cos(angle)
                 if isinstance(obj, Bottle):
@@ -413,8 +518,9 @@ def getSurroundings():
                 elif isinstance(obj, Cone):
                     objects_list.append({'name': 'cone', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev})
             else:
-                print("\t\tNope, too cloudy ({:4.2} < {:4.2})".format(250/dist, rnd))
-    if DEBUG:
+                if DEBUG >= 3:
+                    print("\t\tNope, too cloudy ({:4.2} < {:4.2})".format(250/dist, rnd))
+    if DEBUG >= 3:
         print("")
     return objects_list
 
@@ -427,7 +533,9 @@ def getPosition():
 
 # Arduino placeholder, uses test map ----------------------------------------- #
 def rotate(angle):
-    print('Rotate by {} radians\n'.format(angle))
+    if DEBUG >= 2:
+        print('Rotate by {} radians\n'.format(angle))
+        sleep(1)
     global robotrot
     robotrot += angle
 
@@ -460,7 +568,6 @@ def parse(item):
 
 
 
-
 '''//------------------------------------------------------------------------//'
 ''// main code, part I: creating initial map -------------------------------//''
 '//------------------------------------------------------------------------//'''
@@ -474,8 +581,8 @@ environment = getSurroundings()
 for i in environment:
     imap.add(parse(i))
 
-if DEBUG:
-    print("Initial map created:")
+if DEBUG >= 2:
+    print("Initial view, starting map:")
     imap.debugPrint(True, 0, 0)
     print("Robot at (0.0, 0.0) with rotation 0.0\n")
 
@@ -488,37 +595,46 @@ rotate(step)
 rot = step
 while (rot < 2 * pi):
     # get environment
-    new = Map()
+    view = Map()
     environment = getSurroundings()
     for i in environment:
-        new.add(parse(i))
+        view.add(parse(i))
+
+    if DEBUG >= 3:
+        print("View at rotation {:5.3f}".format(rot))
+        view.debugPrint(True, 0, 0)
 
     # adjust assumed rotation rot to rot'
-    rotp = imap.getRotFit(new, 0.0, rot, step/2)
-    print("Observed rotation: {}".format(rotp))
-    sleep(10)
-
+    rotp = imap.getRotFit(view, 0.0, rot, step/2)
+    if DEBUG >= 3:
+        print("Observed rotation: {:5.3f}".format(rotp))
+    
     # remap position of observed objects to coordinate system of map
-    # TODO
-
+    view = view.getShiftedCopy(Loc(0.0, 0.0), rotp)
+    
     # update map
-    # TODO
+    imap.update(view)
 
     # rotate by step degrees, adjust for rotp
     rotate(step + (rot-rotp))
     rot += step
 
-    if DEBUG:
+    if DEBUG >= 2:
         print("Updated map")
         imap.debugPrint(True, 0, 0)
         print("Robot at (0.0, 0.0) with rotation {}\n".format(rotp))
-        sleep(10)
+
+if DEBUG:
+    print("Stage I completed, resulting map")
+    imap.debugPrint(True, 0, 0)
+    print("")
 
 
 
 '''//------------------------------------------------------------------------//'
 ''// main code, part II: remapping to final map with more features, yay ----//''
 '//------------------------------------------------------------------------//'''
+print("TODO: remapping\n")
 # remap items on map to a new rectangular map using the given corner bottle order
 # TODO
 
@@ -549,6 +665,7 @@ Also, we have a list of boxes held by the robot, having per box
 '''//------------------------------------------------------------------------//'
 ''// main code, part III: driving around, picking up bitches and boxes -----//''
 '//------------------------------------------------------------------------//'''
+print("TODO: stage II\n")
 # while there are cones with undelivered boxes next to it
     # if gripper available
         # move to nearest delivery address OR nearest cone with undelivered boxes
@@ -564,4 +681,4 @@ Also, we have a list of boxes held by the robot, having per box
 '''//------------------------------------------------------------------------//'
 ''// main code, part IV: done ----------------------------------------------//''
 '//------------------------------------------------------------------------//'''
-print("Done. Yay. Beer?")
+print("Done. Yay! Beer?")
