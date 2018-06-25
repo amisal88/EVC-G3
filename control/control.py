@@ -63,19 +63,28 @@ class Loc(object):
     # class variables
     # x = 0.0
     # y = 0.0
-    # pdev = 1.0
+    # pdev = 0.0
+    # rot = 0.0
+    # rdev = 0.0
 
     # constructor
-    def __init__(self, x, y, pdev=None):
+    def __init__(self, x, y, pdev=None, rot=None, rdev=None):
         self.x = float(x)
         self.y = float(y)
         self.pdev = pdev
-        if pdev != None:
-            self.pdev = float(self.pdev)
+        self.rot = rot
+        self.rdev = rdev
 
     # string generator
     def __str__(self):
-        return "({:5.1f}, {:5.1f}) +/- {:4.1f}".format(self.x, self.y, self.pdev)
+        str = "({:5.1f}, {:5.1f})".format(self.x, self.y, self.pdev)
+        if self.pdev:
+            str += " +/- {:4.1f}".format(self.pdev)
+        if self.rot != None:
+            str += "\trot: {:5.3f}".format(self.rot)
+        if self.rdev:
+            str += " +/- {:5.3f}".format(self.rdev)
+        return str
 
     # calculate distance between loc and self
     def getDist(self, loc):
@@ -96,21 +105,47 @@ class Loc(object):
         elif dy == 0:
             return pi * (dx > 0) - pi/2
         elif dy > 0:
-            return atan(dx / dy)
+            return atan(float(dx) / dy)
         elif dx > 0:
-            return atan(dx / dy) + pi
+            return atan(float(dx) / dy) + pi
         else:
-            return atan(dx / dy) - pi
+            return atan(float(dx) / dy) - pi
 
-    # created weighted average location
+    # take weighted average of two locations
     def wavg(self, loc, w):
         iw = 1 - w
-        return Loc(w*self.x+iw*loc.x, w*self.y+iw*loc.y, (pow(self.pdev,w)*pow(loc.pdev,iw))/sqrt(2))
+        wx = w*self.x + iw*loc.x
+        wy = w*self.y + iw*loc.y
+        if self.pdev != None and loc.pdev != None:
+            wpdev = float(pow(self.pdev,w)*pow(loc.pdev,iw))/sqrt(2)
+        elif self.pdev != None:
+            wpdev = self.pdev
+        else:
+            wpdev = loc.pdev
+        if self.rot != None and loc.rot != None:
+            rota = self.rot % (2*pi)
+            rotb = loc.rot % (2*pi)
+            if rota-rotb > pi:
+                rota -= 2*pi
+            elif rotb-rota > pi:
+                rotb -= 2*pi
+            wrot = w*rota + iw*rotb
+        elif self.pdev != None:
+            wrot = self.rot
+        else:
+            wrot = loc.rot
+        if self.rdev != None and loc.rdev != None:
+            wrdev = float(pow(self.rdev,w)*pow(loc.rdev,iw))/sqrt(2)
+        elif self.pdev != None:
+            wrdev = self.rdev
+        else:
+            wrdev = loc.rdev
+        return Loc(wx, wy, wpdev, wrot, wrdev)
 
     def matchError(self, loc):
         dst = self.getDist(loc)
         magic = 1 + self.pdev + loc.pdev
-        return dst/magic
+        return float(dst)/magic
 
 
 # class object, used for objects on the map ---------------------------------- #
@@ -144,11 +179,14 @@ class Obj(object):
         else:
             return self.pos.getAngle(obj.pos)
 
-    # remap object over distance vec, followed by rotation rot over (0.0, 0.0)
-    def remap(self, vec, rot):
-        newx = self.pos.x * cos(rot) + self.pos.y * sin(rot)
-        newy = self.pos.x * -sin(rot) + self.pos.y * cos(rot)
-        self.pos = Loc(newx, newy, self.pos.pdev)
+    # remap object over distance (vec.x, vec.y), followed by rotation vec.rot over (0.0, 0.0)
+    def remap(self, vec):
+        newx = self.pos.x * cos(vec.rot) + self.pos.y * sin(vec.rot)
+        newy = self.pos.x * -sin(vec.rot) + self.pos.y * cos(vec.rot)
+        newrot = None
+        if self.pos.rot != None:
+            newrot = self.pos.rot + vec.rot
+        self.pos = Loc(newx, newy, self.pos.pdev, newrot, self.pos.rdev)
 
     # calculate matching error between object and other object
     def matchError(self, obj):
@@ -164,7 +202,7 @@ class Obj(object):
     def update(self, obj):
         weight_prob = 0.5 # TODO: do stuff with the prob parameter
         weight_views = float(self.views) / (self.views+obj.views)
-        weight_pdev = 1 - self.pos.pdev / (self.pos.pdev+obj.pos.pdev)
+        weight_pdev = 1 - float(self.pos.pdev) / (self.pos.pdev+obj.pos.pdev)
         weight_total = 0.0*weight_prob + 0.7*weight_views + 0.3*weight_pdev # TODO: tweak these values
         if DEBUG >= 3:
             print("w1: {:5.3f}, w2: {:5.3f}, w3: {:5.3f}, wt: {:5.3f}".format(weight_prob, weight_views, weight_pdev, weight_total))
@@ -232,31 +270,20 @@ class Cone(Obj):
 # class box, used to represent the boxes in the field -------------------------#
 class Box(Obj):
     # class variables
-    # rot = 0.0
     # origin = None
     # dest = None
     # delivered = False
 
     # constructor
-    def __init__(self, prob, pos, rot):
+    def __init__(self, prob, pos):
         super(Box, self).__init__(prob, pos)
-        self.rot = rot
         self.origin = None
         self.dest = None
         self.delivered = False
 
-    # remap object over distance vec, followed by rotation rot over (0.0, 0.0)
-    def remap(self, vec, rot):
-        super(Box, self).remap(vec, rot)
-        self.rot += rot
-
     # string generator
     def __str__(self):
-        return super(Box, self).__str__() + "\trot: {:5.3f}\torigin: {}\tdest: {}\tdelivered: {}".format(self.rot, self.origin, self.dest, self.delivered)
-
-    # getters/setters
-    def getRot(self):
-        return self.rot
+        return super(Box, self).__str__() + "\torigin: {}\tdest: {}\tdelivered: {}".format(self.origin, self.dest, self.delivered)
 
     def getDest(self):
         return self.dest
@@ -275,8 +302,6 @@ class Box(Obj):
     # update self with object obj
     def update(self, obj):
         super(Box, self).update(obj)
-        if obj.rot != None:
-            self.rot = obj.rot
         if self.origin == None:
             self.origin = obj.origin
         if self.dest == None:
@@ -302,7 +327,8 @@ class Map(object):
     def add(self, obj):
         self.objs.append(obj)
 
-    # find match between objects on map and new object. If no match found, return false
+    # find match between objects on map and new object. If no match found,
+    # return false
     def findMatch(self, obj):
         minerr = 1 # TODO: tweak this value
         match = False
@@ -314,21 +340,21 @@ class Map(object):
                     match = i
         return match
 
-    # duplicates map, with all elements shifted over distance pos, then rotated
-    # by rot radians over point (0.0, 0.0)
-    def getShiftedCopy(self, pos, rot):
+    # duplicates map, with all elements shifted over distance (vec.x, vec.y),
+    # then rotated by vec.rot radians over point (0.0, 0.0)
+    def getShiftedCopy(self, vec):
         copy = Map()
         for obj in self.objs:
             tmp = deepcopy(obj)
-            tmp.remap(pos, rot)
+            tmp.remap(vec)
             copy.add(tmp)
         return copy
 
     # returns best rotational fit for map B on map A. Arguments: self = map A;
-    # mapb = map B, pos = loc shift of map B on map A; rot = rotation finding
-    # starting point, rdev = maximum deviation of rotational fit
-    def getRotFit(self, mapb, pos, rot, rdev):
-        copy = mapb.getShiftedCopy(pos, rot)
+    # mapb = map B, (vec.x, vec.y) = location shift, vec.rot = rotation
+    # starting point, vec.rdev = maximum rotation deviation
+    def getRotFit(self, mapb, vec):
+        copy = mapb.getShiftedCopy(vec)
         rdif = []
         for obj in copy.objs:
             match = self.findMatch(obj)
@@ -337,23 +363,23 @@ class Map(object):
                 rotb = match.pos.getAngle()
                 rdif.append(rotb-rota)
         if len(rdif):
-            return rot + median(rdif)
+            return rot + median(rdif) # TODO; do stuff with vec.rdev
         else:
             return rot
 
     # returns best location shift fit for map B on map A. Arguments: self = map
-    # A; # mapb = map B, pos = location shift starting point; pdev = maximum
-    # location shift; rot = rotational shift of map B on map A
-    def getPosFit(self, mapb, pos, pdev, rot):
-        print("TODO")
-        return Loc(0.0, 0.0)
+    # A; # mapb = map B, (vec.x, vec.y) = location shift starting point,
+    # vec.pdev = maximum shift deviation, vec.rot = rotation shift
+    def getPosFit(self, mapb, vec):
+        print("TODO") # TODO: implement
+        return Loc(0.0, 0.0, 100.0, 0.0, pi)
 
-    # Fit a second map to the first map, return combined map. Starting point of
-    # alignment is position (0,0) on map B mapped on map A, rotated by rot
-    # radians. Maximum position deviation is fixed to pdev, maximum rotation
-    # deviation is fixed to rdev
-    def combine(self, mapb, pos, pdev, rot, rdev):
-        print("TODO")
+    # returns best rotation + location shift fit for map B on map A. Arguments:
+    # self = map A; # mapb = map B, (vec.x, vec.y) = location shift starting
+    # point, vec.pdev = maximum shift deviation, vec.rot = rotation starting
+    # point, vec.rdev = maximum rotation deviation
+    def getRotPosFit(self, mapb, vec):
+        print("TODO") # TODO: implement
 
     # Update map with objects from given view
     def update(self, view):
@@ -383,18 +409,18 @@ class Map(object):
                 posx.append(x)
                 posy.append(y)
             for i in range(0, len(posx)):
-                posx[i] = round((posx[i]-xmin)/XSCALE)
-                posy[i] = round((posy[i]-ymin)/YSCALE)
-            for y in range(int(round((ymax-ymin)/YSCALE)), -1, -1):
+                posx[i] = round(float(posx[i]-xmin)/XSCALE)
+                posy[i] = round(float(posy[i]-ymin)/YSCALE)
+            for y in range(int(round(float(ymax-ymin)/YSCALE)), -1, -1):
                 line = "\t"
-                for x in range(0, int(round((xmax-xmin)/XSCALE))+1):
+                for x in range(0, int(round(float(xmax-xmin)/XSCALE))+1):
                     match = False
                     for i in range(len(posx)):
                         if posx[i] == x and posy[i] == y:
                             idx = i
                             match = True
                             break
-                    if xx != None and xy != None and round((xx-xmin)/XSCALE) == x and round((xy-ymin)/YSCALE) == y:
+                    if xx != None and xy != None and round(float(xx-xmin)/XSCALE) == x and round(float(xy-ymin)/YSCALE) == y:
                         line += 'X'
                     elif match:
                         line += str(idx)
@@ -438,7 +464,7 @@ for i in range(3):
         rot = 2*pi*random.rand()
         dest = random.randint(0,3)
         if dest != i and boxes < 3:
-            box = Box(1.0, Loc(xp, yp, 0.0), rot)
+            box = Box(1.0, Loc(xp, yp, 0.0, rot, 0.0))
             box.setData(names[i], names[dest])
             debugmap.add(box)
             boxes += 1
@@ -465,19 +491,19 @@ def getSurroundings():
                 print("\tObject: {}".format(obj))
                 print("\tObject in sight? Dist: {:5.1f}, angle: {:5.2f}.".format(dist, angle))
             rnd = random.rand()
-            if not ADVANCED or 250/dist >= rnd:
+            if not ADVANCED or 250.0/dist >= rnd:
                 if ADVANCED:
                     prob = 0.8
-                    magic = 25/(dist+25)
+                    magic = 25.0/(dist+25)
                     angle += (magic*random.rand() - magic/2)
-                    magic = (dist/1250)**2+0.1
+                    magic = (float(dist)/1250)**2+0.1
                     dist = (1 + magic*random.rand() - magic/2) * dist
                     pdev = magic*dist/2+10
                 else:
                     prob = 1.0
                     pdev = 0.0
                 if DEBUG >= 3:
-                    print("\t\tYes, observed at dist {:5.1f} and angle {:5.2f} ({:4.2} > {:4.2})".format(dist, angle, 250/dist, rnd))
+                    print("\t\tYes, observed at dist {:5.1f} and angle {:5.2f} ({:4.2} > {:4.2})".format(dist, angle, float(250)/dist, rnd))
                 posx = dist * sin(angle)
                 posy = dist * cos(angle)
                 if isinstance(obj, Bottle):
@@ -494,7 +520,7 @@ def getSurroundings():
                     objects_list.append({'name': 'cone', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev})
             else:
                 if DEBUG >= 3:
-                    print("\t\tNope, too cloudy ({:4.2} < {:4.2})".format(250/dist, rnd))
+                    print("\t\tNope, too cloudy ({:4.2} < {:4.2})".format(float(250)/dist, rnd))
     if DEBUG >= 3:
         print("")
     return objects_list
@@ -521,23 +547,28 @@ def rotate(angle):
 '//------------------------------------------------------------------------//'''
 # parses input from functional to nice object
 def parse(item):
+    prob = 1.0 # TODO: fix this unwanted situation
     if('probability' in item):
         prob = item['probability']
-    else:
-        prob = 1.0
+    x = item['position'][0]
+    y = item['position'][1]
+    pdev = 1.0 # TODO: fix this unwanted situation
     if('stdev_p' in item):
         pdev = item['stdev_p']
-    else:
-        pdev = 1.0 # TODO: fix this unwanted situation
-    pos = Loc(item['position'][0], item['position'][1], pdev)
+    rot = None
+    if('rot' in item):
+        rot = item['rot']
+    rdev = None
+    if('stdev_r' in item):
+        rot = item['stdev_r']
+    pos = Loc(x, y, pdev, rot, rdev)
     if item['name'] == 'bottle':
         color = item['color']
         return Bottle(prob, pos, color)
     elif item['name'] == 'cone':
         return Cone(prob, pos)
     elif item['name'] == 'box':
-        rot = item['rot']
-        return Box(prob, pos, rot)
+        return Box(prob, pos)
     else:
         print("Parsing error")
 
@@ -580,12 +611,12 @@ while (rot < 2 * pi):
         view.debugPrint(True, 0, 0)
 
     # adjust assumed rotation rot to rot'
-    rotp = imap.getRotFit(view, 0.0, rot, step/2)
+    rotp = imap.getRotFit(view, Loc(0.0, 0.0, None, rot, float(step)/2))
     if DEBUG >= 3:
         print("Observed rotation: {:5.3f}".format(rotp))
     
     # remap position of observed objects to coordinate system of map
-    view = view.getShiftedCopy(Loc(0.0, 0.0), rotp)
+    view = view.getShiftedCopy(Loc(0.0, 0.0, None, rotp))
     
     # update map
     imap.update(view)
