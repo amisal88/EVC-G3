@@ -50,8 +50,8 @@ Assumed functions in Arduino:
 # debug settings ------------------------------------------------------------- #
 DEBUG = 1       # debug print level: 0 = off, 1 = basic, 2 = medium, 3 = all
 ADVANCED = True # give incorrect input
-XSCALE = 10     # a terminal character width represents XSCALE centimeters 
-YSCALE = 22     # a terminal character height represents YSCALE centimeters
+XSCALE = 16     # a terminal character width represents XSCALE centimeters 
+YSCALE = 34     # a terminal character height represents YSCALE centimeters
 
 
 
@@ -63,15 +63,19 @@ class Loc(object):
     # class variables
     # x = 0.0
     # y = 0.0
+    # pdev = 1.0
 
     # constructor
-    def __init__(self, x, y):
+    def __init__(self, x, y, pdev=None):
         self.x = float(x)
         self.y = float(y)
+        self.pdev = pdev
+        if pdev != None:
+            self.pdev = float(self.pdev)
 
     # string generator
     def __str__(self):
-        return "({:5.1f}, {:5.1f})".format(self.x, self.y)
+        return "({:5.1f}, {:5.1f}) +/- {:4.1f}".format(self.x, self.y, self.pdev)
 
     # calculate distance between loc and self
     def getDist(self, loc):
@@ -83,8 +87,8 @@ class Loc(object):
             dx = self.x
             dy = self.y
         else:
-            dx = float(self.x - loc.x)
-            dy = float(self.y - loc.y)
+            dx = self.x - loc.x
+            dy = self.y - loc.y
         if dx == 0 and dy == 0:
             return 0.0
         elif dx == 0:
@@ -101,7 +105,12 @@ class Loc(object):
     # created weighted average location
     def wavg(self, loc, w):
         iw = 1 - w
-        return Loc(w*self.x+iw*loc.x, w*self.y+iw*loc.y)
+        return Loc(w*self.x+iw*loc.x, w*self.y+iw*loc.y, (pow(self.pdev,w)*pow(loc.pdev,iw))/sqrt(2))
+
+    def matchError(self, loc):
+        dst = self.getDist(loc)
+        magic = 1 + self.pdev + loc.pdev
+        return dst/magic
 
 
 # class object, used for objects on the map ---------------------------------- #
@@ -109,25 +118,17 @@ class Obj(object):
     # class variables
     # prob = 1.0
     # views = 0
-    # pos = Loc(0.0, 0.0)
-    # pdev = 0.0
+    # pos = Loc(0.0, 0.0, 0.0)
 
     # constructor
-    def __init__(self, prob, pos, pdev):
+    def __init__(self, prob, pos):
         self.prob = prob
         self.views = 1
         self.pos = pos
-        self.pdev = pdev
 
     # string generator
     def __str__(self):
-        return "sort: {}\tprob: {}\tpos: {}\tpdev: {}".format(type(self), self.prob, self.pos, self.pdev)
-
-    # remap object over distance vec, followed by rotation rot over (0.0, 0.0)
-    def remap(self, vec, rot):
-        newx = self.pos.x * cos(rot) + self.pos.y * sin(rot)
-        newy = self.pos.x * -sin(rot) + self.pos.y * cos(rot)
-        self.pos = Loc(newx, newy)
+        return "sort: {}\tprob: {}\tviews: {}\tpos: {}".format(type(self), self.prob, self.views, self.pos)
 
     # calculate distance between object and other object
     def getDist(self, obj=None):
@@ -143,6 +144,12 @@ class Obj(object):
         else:
             return self.pos.getAngle(obj.pos)
 
+    # remap object over distance vec, followed by rotation rot over (0.0, 0.0)
+    def remap(self, vec, rot):
+        newx = self.pos.x * cos(rot) + self.pos.y * sin(rot)
+        newy = self.pos.x * -sin(rot) + self.pos.y * cos(rot)
+        self.pos = Loc(newx, newy, self.pos.pdev)
+
     # calculate matching error between object and other object
     def matchError(self, obj):
         if type(self) != type(self):
@@ -151,18 +158,20 @@ class Obj(object):
             return inf
         if isinstance(self, Cone) and self.name != None and obj.name != None and self.name != obj.name:
             return inf
-        dst = self.getDist(obj)
-        magic = 1 + self.pdev + obj.pdev
-        return dst / magic
+        return self.pos.matchError(obj.pos)
 
     # update self with object obj
     def update(self, obj):
         if self.matchError(obj) == inf:
             print("No merge update possible")
             return False
-        # TODO: do advanced stuff with the prob parameter
-        weight = self.views / (self.views+obj.views) # TODO: make more advanced weight function that includes ao pdev
-        self.pos = self.pos.wavg(obj.pos, weight)
+        weight_prob = 0.5 # TODO: do stuff with the prob parameter
+        weight_views = float(self.views) / (self.views+obj.views)
+        weight_pdev = 1 - self.pos.pdev / (self.pos.pdev+obj.pos.pdev)
+        weight_total = 0.3*weight_prob + 0.5*weight_views + 0.2*weight_pdev
+        if DEBUG >= 3:
+            print("w1: {:5.3f}, w2: {:5.3f}, w3: {:5.3f}, wt: {:5.3f}".format(weight_prob, weight_views, weight_pdev, weight_total))
+        self.pos = self.pos.wavg(obj.pos, weight_total)
         self.views += obj.views
         # TODO: update subclass variables
         return True
@@ -174,8 +183,8 @@ class Bottle(Obj):
     # color = Enum("Color", "yellow orange blue purple")
 
     # constructor
-    def __init__(self, prob, pos, pdev, color):
-        super(Bottle, self).__init__(prob, pos, pdev)
+    def __init__(self, prob, pos, color):
+        super(Bottle, self).__init__(prob, pos)
         self.color = color
 
     # string generator
@@ -194,8 +203,8 @@ class Cone(Obj):
     # boxesDone = False
 
     # constructor
-    def __init__(self, prob, pos, pdev):
-        super(Cone, self).__init__(prob, pos, pdev)
+    def __init__(self, prob, pos):
+        super(Cone, self).__init__(prob, pos)
         self.name = None
         self.boxesDone = False
 
@@ -227,8 +236,8 @@ class Box(Obj):
     # delivered = False
 
     # constructor
-    def __init__(self, prob, pos, pdev, rot):
-        super(Box, self).__init__(prob, pos, pdev)
+    def __init__(self, prob, pos, rot):
+        super(Box, self).__init__(prob, pos)
         self.rot = rot
         self.origin = None
         self.dest = None
@@ -438,10 +447,10 @@ xmin = 0.0
 xmax = random.randint(500, 1000)
 ymin = 0.0
 ymax = random.randint(700, 1000)
-debugmap.add(Bottle(1.0, Loc(xmin, ymin), 0.0, 'yellow'))
-debugmap.add(Bottle(1.0, Loc(xmin, ymax), 0.0, 'orange'))
-debugmap.add(Bottle(1.0, Loc(xmax, ymax), 0.0, 'blue'))
-debugmap.add(Bottle(1.0, Loc(xmax, ymin), 0.0, 'purple'))
+debugmap.add(Bottle(1.0, Loc(xmin, ymin, 0.0), 'yellow'))
+debugmap.add(Bottle(1.0, Loc(xmin, ymax, 0.0), 'orange'))
+debugmap.add(Bottle(1.0, Loc(xmax, ymax, 0.0), 'blue'))
+debugmap.add(Bottle(1.0, Loc(xmax, ymin, 0.0), 'purple'))
 names = ['Inaki', 'Oudman', 'Amin']
 boxes = 0
 for i in range(3):
@@ -451,9 +460,9 @@ for i in range(3):
         y = random.randint(50, ymax-50)
         good = True
         for obj in debugmap.objs:
-            if obj.pos.getDist(Loc(x, y)) < 200:
+            if obj.pos.getDist(Loc(x, y)) < 100:
                 good = False
-    cone = Cone(1.0, Loc(x, y), 0.0)
+    cone = Cone(1.0, Loc(x, y, 0.0))
     cone.setName(names[i])
     debugmap.add(cone)
     n = random.randint(1, 3)
@@ -463,14 +472,14 @@ for i in range(3):
         rot = 2*pi*random.rand()
         dest = random.randint(0,3)
         if dest != i and boxes < 3:
-            box = Box(1.0, Loc(xp, yp), 0.0, rot)
+            box = Box(1.0, Loc(xp, yp, 0.0), rot)
             box.setData(names[i], names[dest])
             debugmap.add(box)
             boxes += 1
 robotx = random.randint(50, xmax-50)
 roboty = random.randint(50, ymax-50)
 robotrot = 2*pi*random.rand()
-robot = Obj(1.0, Loc(robotx, roboty), 0.0)
+robot = Obj(1.0, Loc(robotx, roboty, 0.0))
 if DEBUG:
     print("Debug map created:")
     debugmap.debugPrint(True, robotx, roboty)
@@ -550,19 +559,19 @@ def parse(item):
         prob = item['probability']
     else:
         prob = 1.0
-    pos = Loc(item['position'][0], item['position'][1])
     if('stdev_p' in item):
         pdev = item['stdev_p']
     else:
-        pdev = 0.0
+        pdev = 1.0 # TODO: fix this unwanted situation
+    pos = Loc(item['position'][0], item['position'][1], pdev)
     if item['name'] == 'bottle':
         color = item['color']
-        return Bottle(prob, pos, pdev, color)
+        return Bottle(prob, pos, color)
     elif item['name'] == 'cone':
-        return Cone(prob, pos, pdev)
+        return Cone(prob, pos)
     elif item['name'] == 'box':
         rot = item['rot']
-        return Box(prob, pos, pdev, rot)
+        return Box(prob, pos, rot)
     else:
         print("Parsing error")
 
