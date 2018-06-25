@@ -390,53 +390,6 @@ class Map(object):
                 print(line)
 
 
-# class view, map with robot at Loc(0.0, 0.0) and limited view --------------- #
-class View(Map):
-    # class variables
-    # rotl = -pi/3
-    # rotr = -pi/3
-    # depth = 500.0
-
-    # constructor
-    def __init__(self, rotl=-pi/3, rotr=pi/3, depth=800.0):
-        super(View, self).__init__()
-        self.rotl = rotl
-        self.rotr = rotr
-        self.depth = depth
-
-    # debug print: print all objects
-    def debugPrint(self, nice=False):
-        for obj in self.objs:
-            print("{}\t{}".format(self.objs.index(obj), obj))
-        if nice:
-            posx = []
-            posy = []
-            for obj in self.objs:
-                posx.append(round(obj.pos.x/XSCALE))
-                posy.append(round(obj.pos.y/YSCALE))
-            for y in range(int(round(self.depth/YSCALE)), -int(round(self.depth/YSCALE))-1, -1):
-                line = ""
-                for x in range(-int(round(self.depth/XSCALE)), int(round(self.depth/XSCALE))+1):
-                    match = False
-                    angle = Loc(x*XSCALE, y*YSCALE).getAngle()
-                    if (x*XSCALE)**2+(y*YSCALE)**2 <= self.depth**2 and angle > self.rotl and angle < self.rotr:
-                        for i in range(len(posx)):
-                            if posx[i] == x and posy[i] == y:
-                                idx = i
-                                match = True
-                                break
-                        if x == 0 and y == 0:
-                            line += 'X'
-                        elif match:
-                            line += str(idx)
-                        else:
-                            line += '-'
-                    else:
-                        line += ' '
-                if line.replace(" ", "") != "":
-                    print(line)
-
-
 
 '''//------------------------------------------------------------------------//'
 ''// test map & vision + Arduino placeholders ------------------------------//''
