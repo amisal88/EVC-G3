@@ -21,11 +21,11 @@ Assumed functions in visual thread:
   environment and returns a list of potential seen objects. Objects have the
   following format:
     minBottle = {'name': 'bottle', 'position': (0.0, 0.0), 'color': 'yellow'}
-    maxBottle = {'name': 'bottle', 'probability': 1.0, 'position': (0.0, 0.0), 'stdev_p': 0.0, 'color': 'yellow'}
+    maxBottle = {'name': 'bottle', 'probability': 1.0, 'position': (0.0, 0.0), 'stdev_p': 0.0, 'rot': 0.0, 'stdev_r': 0.0, 'color': 'yellow'}
     minCone = {'name': 'cone', 'position': (0.0, 0.0)}
-    maxCone = {'name': 'cone', 'probability': 1.0, 'position': (0.0, 0.0), 'stdev_p': 0.0}
+    maxCone = {'name': 'cone', 'probability': 1.0, 'position': (0.0, 0.0), 'stdev_p': 0.0, 'rot': 0.0, 'stdev_r': 0.0}
     minBox = {'name': 'box', 'position': (0.0, 0.0), 'rot': 0.0}
-    maxBox = {'name': 'box', 'probability': 1.0, 'position': (0.0, 0.0), 'stdev_p': 0.0, 'rot': 0.0}
+    maxBox = {'name': 'box', 'probability': 1.0, 'position': (0.0, 0.0), 'stdev_p': 0.0, 'rot': 0.0, 'stdev_r': 0.0}
   All objects have a parameter name, an optional parameter probability, a
   parameter position, and an optional parameter stdev_p. All bottle objects
   have a parameter color. All box objects have a parameter rot.
@@ -179,7 +179,8 @@ class Obj(object):
         else:
             return self.pos.getAngle(obj.pos)
 
-    # remap object over distance (vec.x, vec.y), followed by rotation vec.rot over (0.0, 0.0)
+    # remap object over distance (vec.x, vec.y), followed by rotation vec.rot
+    # over (0.0, 0.0)
     def remap(self, vec):
         newx = self.pos.x * cos(vec.rot) + self.pos.y * sin(vec.rot)
         newy = self.pos.x * -sin(vec.rot) + self.pos.y * cos(vec.rot)
