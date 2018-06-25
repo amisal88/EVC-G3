@@ -162,19 +162,14 @@ class Obj(object):
 
     # update self with object obj
     def update(self, obj):
-        if self.matchError(obj) == inf:
-            print("No merge update possible")
-            return False
         weight_prob = 0.5 # TODO: do stuff with the prob parameter
         weight_views = float(self.views) / (self.views+obj.views)
         weight_pdev = 1 - self.pos.pdev / (self.pos.pdev+obj.pos.pdev)
-        weight_total = 0.3*weight_prob + 0.5*weight_views + 0.2*weight_pdev
+        weight_total = 0.0*weight_prob + 0.7*weight_views + 0.3*weight_pdev # TODO: tweak these values
         if DEBUG >= 3:
             print("w1: {:5.3f}, w2: {:5.3f}, w3: {:5.3f}, wt: {:5.3f}".format(weight_prob, weight_views, weight_pdev, weight_total))
         self.pos = self.pos.wavg(obj.pos, weight_total)
         self.views += obj.views
-        # TODO: update subclass variables
-        return True
 
 
 # class bottle, used to represent the corner bottles of the field -------------#
@@ -226,6 +221,13 @@ class Cone(Obj):
     def toVisit(self):
         return self.name == None or not boxesDone
 
+    # update self with object obj
+    def update(self, obj):
+        super(Cone, self).update(obj)
+        if self.name == None:
+            self.name = obj.name
+        self.boxesDone = self.boxesDone or obj.boxesDone
+
 
 # class box, used to represent the boxes in the field -------------------------#
 class Box(Obj):
@@ -269,6 +271,17 @@ class Box(Obj):
 
     def setDelivered(self):
         self.delivered = True
+
+    # update self with object obj
+    def update(self, obj):
+        super(Box, self).update(obj)
+        if obj.rot != None:
+            self.rot = obj.rot
+        if self.origin == None:
+            self.origin = obj.origin
+        if self.dest == None:
+            self.dest = obj.dest
+        self.delivered = self.delivered or obj.delivered
 
 
 # class map, our virtual map of the surroundings ----------------------------- #
