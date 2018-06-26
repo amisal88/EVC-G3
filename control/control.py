@@ -360,13 +360,17 @@ class Map(object):
         for obj in copy.objs:
             match = self.findMatch(obj)
             if match:
-                rota = match.pos.getAngle()
+                rota = obj.pos.getAngle()
                 rotb = match.pos.getAngle()
-                rdif.append(rotb-rota)
+                drot = (rotb-rota+pi) % (2*pi) - pi
+                if DEBUG >= 3:
+                    print("rota: {:5.3}\trotb: {:5.3}\tdrot: {:5.3}".format(rota, rotb, drot))
+                if abs(drot) < vec.rdev:
+                    rdif.append(drot)
         if len(rdif):
-            return rot + median(rdif) # TODO; do stuff with vec.rdev
+            return vec.rot + median(rdif)
         else:
-            return rot
+            return vec.rot
 
     # returns best location shift fit for map B on map A. Arguments: self = map
     # A; # mapb = map B, (vec.x, vec.y) = location shift starting point,
