@@ -144,7 +144,7 @@ class Loc(object):
 
     def matchError(self, loc):
         dst = self.getDist(loc)
-        magic = 1 + self.pdev + loc.pdev
+        magic = 1 + self.pdev + loc.pdev # TODO: tweak this formula
         return float(dst)/magic
 
 
@@ -314,12 +314,20 @@ class Box(Obj):
 class Map(object):
     # class variables
     # objs = []
+    # locs = []
 
     # constructor
     def __init__(self):
         self.objs = []
+        self.locs = [] # TODO: do use this variable
 
     # getters/setters
+    def getBottle(self, color):
+        for obj in self.objs:
+            if isinstance(obj, Bottle) and obj.color == color:
+                return obj # TODO: fix for situation where we have seen multiple bottles of the same color
+        return False
+
     def setSize(self, x, y):
         self.width = x
         self.length = y
@@ -327,6 +335,16 @@ class Map(object):
     # add new objects to the map
     def add(self, obj):
         self.objs.append(obj)
+
+    # duplicates map, with all elements shifted over distance (vec.x, vec.y),
+    # then rotated by vec.rot radians over point (0.0, 0.0)
+    def getShiftedCopy(self, vec):
+        copy = Map()
+        for obj in self.objs:
+            tmp = deepcopy(obj)
+            tmp.remap(vec)
+            copy.add(tmp)
+        return copy
 
     # find match between objects on map and new object. If no match found,
     # return false
@@ -341,15 +359,16 @@ class Map(object):
                     match = i
         return match
 
-    # duplicates map, with all elements shifted over distance (vec.x, vec.y),
-    # then rotated by vec.rot radians over point (0.0, 0.0)
-    def getShiftedCopy(self, vec):
-        copy = Map()
-        for obj in self.objs:
-            tmp = deepcopy(obj)
-            tmp.remap(vec)
-            copy.add(tmp)
-        return copy
+    # calculate and return matching error between self and mapb
+    def matchError(self, mapb):
+        error = 0
+        for obj in mapb.objs:
+            match = self.findMatch(obj)
+            if match:
+                error += match.matchError(obj)
+            else:
+                error += 100 # TODO: tweak this value
+        return error
 
     # returns best rotational fit for map B on map A. Arguments: self = map A;
     # mapb = map B, (vec.x, vec.y) = location shift, vec.rot = rotation
@@ -582,6 +601,10 @@ def parse(item):
 '''//------------------------------------------------------------------------//'
 ''// main code, part I: creating initial map -------------------------------//''
 '//------------------------------------------------------------------------//'''
+print("+------------------------------------------------------------------------------+")
+print("| STAGE I STARTING                                                             |")
+print("+------------------------------------------------------------------------------+\n")
+
 # create empty initial map
 imap = Map()
 
@@ -636,7 +659,7 @@ while (rot < 2 * pi):
         print("Robot at (0.0, 0.0) with rotation {}\n".format(rotp))
 
 if DEBUG:
-    print("Stage I completed, resulting map")
+    print("Stage I completed, resulting map:")
     imap.debugPrint(True, 0, 0)
     print("")
 
@@ -645,15 +668,46 @@ if DEBUG:
 '''//------------------------------------------------------------------------//'
 ''// main code, part II: remapping to final map with more features, yay ----//''
 '//------------------------------------------------------------------------//'''
-print("TODO: remapping\n")
-# remap items on map to a new rectangular map using the given corner bottle order
-# TODO
+print("+------------------------------------------------------------------------------+")
+print("| REMAPPING STARTING                                                           |")
+print("+------------------------------------------------------------------------------+\n")
 
-# make a list of cone statuses
-# TODO
+# check which bottles are observed, create initial remap vector
+yellow = imap.getBottle("yellow")
+orange = imap.getBottle("orange")
+blue = imap.getBottle("blue")
+purple = imap.getBottle("purple")
+x = y = False
+rots = []
+if yellow and purple:
+    x = yellow.getDist(purple)
+    rots.append((purple.getAngle(yellow))-pi/2)
+if yellow and orange:
+    y = yellow.getDist(orange)
+    rots.append(orange.getAngle(yellow))
+if orange and blue:
+    rots.append((blue.getAngle(orange))-pi/2)
+    if x:
+        x = float(x+orange.getDist(blue)) / 2
+    else:
+        x = orange.getDist(blue)
+if purple and blue:
+    rots.append(blue.getAngle(purple))
+    if y:
+        y = float(y+purple.getDist(blue)) / 2
+    else:
+        y = purple.getDist(blue)
 
-# make an empty list of boxes held by the robot
-# TODO
+if not x or not y:
+    print("Shit. Not enough bottles detected for proper remapping. But, let's continue anyway.")
+
+rots = [-rot%(2*pi) for rot in rots]
+rot = median(rots)
+if rot != []:
+    imap = imap.getShiftedCopy(Loc(0.0, 0.0, None, rot))
+
+print("Remapping completed, resulting map:")
+imap.debugPrint(True, 0, 0)
 
 '''
 At this point we have a nice map containing the following:
@@ -670,12 +724,16 @@ Also, we have a list of boxes held by the robot, having per box
 - gripper number
 - delivery address
 '''
+print("")
 
 
 
 '''//------------------------------------------------------------------------//'
 ''// main code, part III: driving around, picking up bitches and boxes -----//''
 '//------------------------------------------------------------------------//'''
+print("+------------------------------------------------------------------------------+")
+print("| STAGE II STARTING                                                            |")
+print("+------------------------------------------------------------------------------+\n")
 print("TODO: stage II\n")
 # while there are cones with undelivered boxes next to it
     # if gripper available
@@ -692,4 +750,7 @@ print("TODO: stage II\n")
 '''//------------------------------------------------------------------------//'
 ''// main code, part IV: done ----------------------------------------------//''
 '//------------------------------------------------------------------------//'''
-print("Done. Yay! Beer?")
+print("+------------------------------------------------------------------------------+")
+print("| CELEBRATING STARTING                                                         |")
+print("+------------------------------------------------------------------------------+\n")
+print("Yay! Beer?")
