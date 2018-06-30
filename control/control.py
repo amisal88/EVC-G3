@@ -50,8 +50,8 @@ Assumed functions in Arduino:
 # debug settings ------------------------------------------------------------- #
 DEBUG = 1       # debug print level: 0 = off, 1 = basic, 2 = medium, 3 = all
 ADVANCED = True # give incorrect input
-XSCALE = 16     # a terminal character width represents XSCALE centimeters 
-YSCALE = 34     # a terminal character height represents YSCALE centimeters
+XSCALE = 32     # a terminal character width represents XSCALE centimeters
+YSCALE = 68     # a terminal character height represents YSCALE centimeters
 
 
 
@@ -110,6 +110,17 @@ class Loc(object):
             return atan(float(dx) / dy) + pi
         else:
             return atan(float(dx) / dy) - pi
+
+    # remap loc over distance (vec.x, vec.y), followed by rotation vec.rot
+    # over (0.0, 0.0)
+    def remap(self, vec):
+        self.x += vec.x
+        self.y += vec.y
+        newx = self.x * cos(vec.rot) + self.y * sin(vec.rot)
+        self.y = self.x * -sin(vec.rot) + self.y * cos(vec.rot)
+        self.x = newx
+        if self.rot != None:
+            self.rot += vec.rot
 
     # take weighted average of two locations
     def wavg(self, loc, w):
@@ -182,12 +193,7 @@ class Obj(object):
     # remap object over distance (vec.x, vec.y), followed by rotation vec.rot
     # over (0.0, 0.0)
     def remap(self, vec):
-        newx = self.pos.x * cos(vec.rot) + self.pos.y * sin(vec.rot)
-        newy = self.pos.x * -sin(vec.rot) + self.pos.y * cos(vec.rot)
-        newrot = None
-        if self.pos.rot != None:
-            newrot = self.pos.rot + vec.rot
-        self.pos = Loc(newx, newy, self.pos.pdev, newrot, self.pos.rdev)
+        self.pos.remap(vec)
 
     # calculate matching error between object and other object
     def matchError(self, obj):
@@ -311,15 +317,17 @@ class Box(Obj):
 
 
 # class map, our virtual map of the surroundings ----------------------------- #
+# the current robot position on the map is always (0,0) with viewing direction
+# of positive y axis. The robot does not move, the map moves.
 class Map(object):
     # class variables
     # objs = []
-    # locs = []
+    # marks = []
 
     # constructor
     def __init__(self):
         self.objs = []
-        self.locs = [] # TODO: do use this variable
+        self.marks = []
 
     # getters/setters
     def getBottle(self, color):
@@ -336,6 +344,10 @@ class Map(object):
     def add(self, obj):
         self.objs.append(obj)
 
+    # add robot location
+    def addMark(self, mark=Loc(0.0, 0.0, 0, 0, 0)):
+        self.marks.append(mark)
+
     # duplicates map, with all elements shifted over distance (vec.x, vec.y),
     # then rotated by vec.rot radians over point (0.0, 0.0)
     def getShiftedCopy(self, vec):
@@ -344,6 +356,10 @@ class Map(object):
             tmp = deepcopy(obj)
             tmp.remap(vec)
             copy.add(tmp)
+        for mark in self.marks:
+            tmp = deepcopy(mark)
+            tmp.remap(vec)
+            copy.addMark(tmp)
         return copy
 
     # find match between objects on map and new object. If no match found,
@@ -415,42 +431,44 @@ class Map(object):
                 self.add(obj)
 
     # debug print: print all objects
-    def debugPrint(self, nice=False, xx=None, xy=None):
+    def debugPrint(self):
         for obj in self.objs:
             print("{}\t{}".format(self.objs.index(obj), obj))
-        if nice:
-            xmin = xmax = 0.0
-            ymin = ymax = 0.0
-            posx = []
-            posy = []
-            for obj in self.objs:
-                x = obj.pos.x
-                y = obj.pos.y
-                xmin = min(xmin, x)
-                xmax = max(xmax, x)
-                ymin = min(ymin, y)
-                ymax = max(ymax, y)
-                posx.append(x)
-                posy.append(y)
-            for i in range(0, len(posx)):
-                posx[i] = round(float(posx[i]-xmin)/XSCALE)
-                posy[i] = round(float(posy[i]-ymin)/YSCALE)
-            for y in range(int(round(float(ymax-ymin)/YSCALE)), -1, -1):
-                line = "\t"
-                for x in range(0, int(round(float(xmax-xmin)/XSCALE))+1):
-                    match = False
-                    for i in range(len(posx)):
-                        if posx[i] == x and posy[i] == y:
-                            idx = i
-                            match = True
-                            break
-                    if xx != None and xy != None and round(float(xx-xmin)/XSCALE) == x and round(float(xy-ymin)/YSCALE) == y:
-                        line += 'X'
-                    elif match:
-                        line += str(idx)
-                    else:
-                        line += '-'
-                print(line)
+        if self.marks != []:
+            for mark in self.marks:
+                print("{}\t{}".format(self.marks.index(mark), mark))
+        xmin = xmax = 0.0
+        ymin = ymax = 0.0
+        posx = []
+        posy = []
+        for obj in self.objs:
+            x = obj.pos.x
+            y = obj.pos.y
+            xmin = min(xmin, x)
+            xmax = max(xmax, x)
+            ymin = min(ymin, y)
+            ymax = max(ymax, y)
+            posx.append(x)
+            posy.append(y)
+        for i in range(0, len(posx)):
+            posx[i] = round(float(posx[i]-xmin)/XSCALE)
+            posy[i] = round(float(posy[i]-ymin)/YSCALE)
+        for y in range(int(round(float(ymax-ymin)/YSCALE)), -1, -1):
+            line = "\t"
+            for x in range(0, int(round(float(xmax-xmin)/XSCALE))+1):
+                match = False
+                for i in range(len(posx)):
+                    if posx[i] == x and posy[i] == y:
+                        idx = i
+                        match = True
+                        break
+                if round(float(-xmin)/XSCALE) == x and round(float(-ymin)/YSCALE) == y:
+                    line += 'X'
+                elif match:
+                    line += str(idx)
+                else:
+                    line += '-'
+            print(line)
 
 
 
@@ -495,10 +513,11 @@ for i in range(3):
 robotx = random.randint(50, xmax-50)
 roboty = random.randint(50, ymax-50)
 robotrot = 2*pi*random.rand()
-robot = Obj(1.0, Loc(robotx, roboty, 0.0))
+debugmap = debugmap.getShiftedCopy(Loc(-robotx, -roboty, None, -robotrot))
+robot = Obj(1.0, Loc(0.0, 0.0, 0.0, 0.0, 0.0))
 if DEBUG:
     print("Debug map created:")
-    debugmap.debugPrint(True, robotx, roboty)
+    debugmap.debugPrint()
     print("Robot placed at position ({}, {}) with rotation {:5.3f}\n".format(robotx, roboty, robotrot))
 
 
@@ -509,7 +528,7 @@ def getSurroundings():
     objects_list = []
     for obj in debugmap.objs:
         dist = obj.getDist(robot)
-        angle = (obj.getAngle(robot) - robotrot + pi) % (2*pi) - pi
+        angle = (obj.getAngle(robot) + pi) % (2*pi) - pi
         if angle > (-pi/3) and angle < (pi/3) and not isinstance(obj, Box):
             if DEBUG >= 3:
                 print("\tObject: {}".format(obj))
@@ -531,15 +550,7 @@ def getSurroundings():
                 posx = dist * sin(angle)
                 posy = dist * cos(angle)
                 if isinstance(obj, Bottle):
-                    if obj.pos.x == 0.0 and obj.pos.y == 0:
-                        color = 'yellow'
-                    elif obj.pos.x == 0.0:
-                        color = 'orange'
-                    elif obj.pos.y == 0.0:
-                        color = 'purple'
-                    else:
-                        color = 'blue'
-                    objects_list.append({'name': 'bottle', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev, 'color': color})
+                    objects_list.append({'name': 'bottle', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev, 'color': obj.color})
                 elif isinstance(obj, Cone):
                     objects_list.append({'name': 'cone', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev})
             else:
@@ -561,8 +572,8 @@ def rotate(angle):
     if DEBUG >= 2:
         print('Rotate by {} radians\n'.format(angle))
         sleep(1)
-    global robotrot
-    robotrot += angle
+    global debugmap
+    debugmap = debugmap.getShiftedCopy(Loc(0.0, 0.0, None, -angle))
 
 
 
@@ -607,6 +618,7 @@ print("+------------------------------------------------------------------------
 
 # create empty initial map
 imap = Map()
+imap.addMark()
 
 # get environment
 environment = getSurroundings()
@@ -617,17 +629,18 @@ for i in environment:
 
 if DEBUG >= 2:
     print("Initial view, starting map:")
-    imap.debugPrint(True, 0, 0)
+    imap.debugPrint()
     print("Robot at (0.0, 0.0) with rotation 0.0\n")
 
 # rotation settings
 steps = 12
 step = 2 * pi / steps
+rot = 0
+while (rot < 2*pi - step/2):
+    # rotate by step degrees, adjust for stepp
+    rotate(step)
+    rot += step
 
-# look around 360 degrees
-rotate(step)
-rot = step
-while (rot < 2 * pi):
     # get environment
     view = Map()
     environment = getSurroundings()
@@ -636,32 +649,28 @@ while (rot < 2 * pi):
 
     if DEBUG >= 3:
         print("View at rotation {:5.3f}".format(rot))
-        view.debugPrint(True, 0, 0)
+        view.debugPrint()
 
-    # adjust assumed rotation rot to rot'
-    rotp = imap.getRotFit(view, Loc(0.0, 0.0, None, rot, float(step)/2))
+    # adjust assumed rotation step to step'
+    stepp = imap.getRotFit(view, Loc(0.0, 0.0, None, step, float(step)/2))
+    rot += (stepp-step)
     if DEBUG >= 3:
-        print("Observed rotation: {:5.3f}".format(rotp))
+        print("Observed rotation: {:5.3f}".format(stepp))
     
     # remap position of observed objects to coordinate system of map
-    view = view.getShiftedCopy(Loc(0.0, 0.0, None, rotp))
+    imap = imap.getShiftedCopy(Loc(0.0, 0.0, None, -stepp))
+    imap.addMark()
     
     # update map
     imap.update(view)
 
-    # rotate by step degrees, adjust for rotp
-    rotate(step + (rot-rotp))
-    rot += step
-
     if DEBUG >= 2:
         print("Updated map")
-        imap.debugPrint(True, 0, 0)
-        print("Robot at (0.0, 0.0) with rotation {}\n".format(rotp))
+        imap.debugPrint()
 
-if DEBUG:
-    print("Stage I completed, resulting map:")
-    imap.debugPrint(True, 0, 0)
-    print("")
+print("Stage I completed, resulting map:")
+imap.debugPrint()
+print("")
 
 
 
@@ -672,6 +681,7 @@ print("+------------------------------------------------------------------------
 print("| REMAPPING STARTING                                                           |")
 print("+------------------------------------------------------------------------------+\n")
 
+'''
 # check which bottles are observed, create initial remap vector
 yellow = imap.getBottle("yellow")
 orange = imap.getBottle("orange")
@@ -707,8 +717,8 @@ if rot != []:
     imap = imap.getShiftedCopy(Loc(0.0, 0.0, None, rot))
 
 print("Remapping completed, resulting map:")
-imap.debugPrint(True, 0, 0)
-
+imap.debugPrint()
+'''
 '''
 At this point we have a nice map containing the following:
 - exactly four corner bottles
