@@ -421,6 +421,12 @@ class Map(object):
     def getRotPosFit(self, mapb, vec):
         print("TODO") # TODO: implement
 
+    # find the four corner bottles, calculate reshaping of map using fact that
+    # map should be rectangular, adjust objects on map using weight w
+    def squareMap(self, w):
+        print("Squaring corners: TODO")
+        # TODO: implement
+
     # Update map with objects from given view
     def update(self, view):
         for obj in view.objs:
@@ -587,7 +593,8 @@ def parse(item):
         prob = item['probability']
     x = item['position'][0]
     y = item['position'][1]
-    pdev = 1.0 # TODO: fix this unwanted situation
+    dist = sqrt(x**2 + y**2)
+    pdev = (dist/2000+0.1)*dist # TODO: fix this still unwanted situation
     if('stdev_p' in item):
         pdev = item['stdev_p']
     rot = None
@@ -754,6 +761,9 @@ print("TODO: stage II\n")
         # drop box
     # if at cone with undelivered boxes
         # pickup box
+# while there are undelivered boxes in our gripper
+    # move to nearest delivery address
+    # drop box
 
 
 
