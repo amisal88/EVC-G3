@@ -50,8 +50,8 @@ Assumed functions in Arduino:
 # debug settings ------------------------------------------------------------- #
 DEBUG = 1       # debug print level: 0 = off, 1 = basic, 2 = medium, 3 = all
 ADVANCED = True # give incorrect input
-XSCALE = 32     # a terminal character width represents XSCALE centimeters
-YSCALE = 68     # a terminal character height represents YSCALE centimeters
+XSCALE = 16     # a terminal character width represents XSCALE centimeters
+YSCALE = 34     # a terminal character height represents YSCALE centimeters
 
 
 
@@ -331,10 +331,13 @@ class Map(object):
 
     # getters/setters
     def getBottle(self, color):
-        for obj in self.objs:
-            if isinstance(obj, Bottle) and obj.color == color:
-                return obj # TODO: fix for situation where we have seen multiple bottles of the same color
-        return False
+        bottles = [obj for obj in self.objs if isinstance(obj, Bottle) and obj.color == color]
+        if bottles == []:
+            return False
+        maxprob = max([bottle.prob for bottle in bottles])
+        for bottle in bottles:
+            if bottle.prob == maxprob:
+                return bottle
 
     def setSize(self, x, y):
         self.width = x
@@ -365,7 +368,7 @@ class Map(object):
     # find match between objects on map and new object. If no match found,
     # return false
     def findMatch(self, obj):
-        minerr = 1 # TODO: tweak this value
+        minerr = 2 # TODO: tweak this value
         match = False
         for i in self.objs:
             if type(i) == type(obj):
@@ -389,7 +392,7 @@ class Map(object):
     # returns best rotational fit for map B on map A. Arguments: self = map A;
     # mapb = map B, (vec.x, vec.y) = location shift, vec.rot = rotation
     # starting point, vec.rdev = maximum rotation deviation
-    def getRotFit(self, mapb, vec):
+    def getRotFit(self, mapb, vec=Loc(0.0, 0.0, None, 0.0, 2*pi)):
         copy = mapb.getShiftedCopy(vec)
         rdif = []
         for obj in copy.objs:
@@ -410,9 +413,30 @@ class Map(object):
     # returns best location shift fit for map B on map A. Arguments: self = map
     # A; # mapb = map B, (vec.x, vec.y) = location shift starting point,
     # vec.pdev = maximum shift deviation, vec.rot = rotation shift
-    def getPosFit(self, mapb, vec):
-        print("TODO") # TODO: implement
-        return Loc(0.0, 0.0, 100.0, 0.0, pi)
+    def getPosFit(self, mapb, vec=Loc(0.0, 0.0, inf, 0.0, None)):
+        copy = mapb.getShiftedCopy(vec)
+        weight = 0.0
+        sumx = sumy = 0.0
+        for obj in copy.objs:
+            match = self.findMatch(obj)
+            if match:
+                dx = obj.pos.x - match.pos.x
+                dy = obj.pos.y - match.pos.y
+                magic = (1 + obj.pos.pdev + match.pos.pdev) # TODO: tweak this formula
+                if DEBUG>3:
+                    print(dx, dy, magic)
+                sumx += dx/magic
+                sumy += dy/magic
+                weight += 1/magic
+        if weight == 0:
+            return vec
+        dx = vec.x+sumx/weight
+        dy = vec.y+sumy/weight
+        dx = min(dx, vec.x+vec.pdev)
+        dx = max(dx, vec.x-vec.pdev)
+        dy = min(dy, vec.y+vec.pdev)
+        dy = max(dy, vec.y-vec.pdev)
+        return Loc(dx, dy)
 
     # returns best rotation + location shift fit for map B on map A. Arguments:
     # self = map A; # mapb = map B, (vec.x, vec.y) = location shift starting
@@ -424,8 +448,16 @@ class Map(object):
     # find the four corner bottles, calculate reshaping of map using fact that
     # map should be rectangular, adjust objects on map using weight w
     def squareMap(self, w):
-        print("Squaring corners: TODO")
-        # TODO: implement
+        if DEBUG >=2 :
+            print("Squaring corners:")
+        yellow = imap.getBottle("yellow")
+        orange = imap.getBottle("orange")
+        blue = imap.getBottle("blue")
+        purple = imap.getBottle("purple")
+        if not (yellow and orange or blue and purple) or not (orange and blue or purple and yellow):
+            if DEBUG >= 2:
+                print("Not enough bottles detected for proper squaring")
+        print("Not yet implemented!") # TODO: implement
 
     # Update map with objects from given view
     def update(self, view):
@@ -543,9 +575,9 @@ def getSurroundings():
             if not ADVANCED or 250.0/dist >= rnd:
                 if ADVANCED:
                     prob = 0.8
-                    magic = 25.0/(dist+25)
+                    magic = 50.0/(dist+25)
                     angle += (magic*random.rand() - magic/2)
-                    magic = (float(dist)/1250)**2+0.1
+                    magic = float(dist)/2000+0.1
                     dist = (1 + magic*random.rand() - magic/2) * dist
                     pdev = magic*dist/2+10
                 else:
@@ -675,9 +707,10 @@ while (rot < 2*pi - step/2):
         print("Updated map")
         imap.debugPrint()
 
-print("Stage I completed, resulting map:")
-imap.debugPrint()
-print("")
+if DEBUG:
+    print("Stage I completed, resulting map:")
+    imap.debugPrint()
+    print("")
 
 
 
@@ -688,44 +721,13 @@ print("+------------------------------------------------------------------------
 print("| REMAPPING STARTING                                                           |")
 print("+------------------------------------------------------------------------------+\n")
 
-'''
-# check which bottles are observed, create initial remap vector
-yellow = imap.getBottle("yellow")
-orange = imap.getBottle("orange")
-blue = imap.getBottle("blue")
-purple = imap.getBottle("purple")
-x = y = False
-rots = []
-if yellow and purple:
-    x = yellow.getDist(purple)
-    rots.append((purple.getAngle(yellow))-pi/2)
-if yellow and orange:
-    y = yellow.getDist(orange)
-    rots.append(orange.getAngle(yellow))
-if orange and blue:
-    rots.append((blue.getAngle(orange))-pi/2)
-    if x:
-        x = float(x+orange.getDist(blue)) / 2
-    else:
-        x = orange.getDist(blue)
-if purple and blue:
-    rots.append(blue.getAngle(purple))
-    if y:
-        y = float(y+purple.getDist(blue)) / 2
-    else:
-        y = purple.getDist(blue)
-
-if not x or not y:
-    print("Shit. Not enough bottles detected for proper remapping. But, let's continue anyway.")
-
-rots = [-rot%(2*pi) for rot in rots]
-rot = median(rots)
-if rot != []:
-    imap = imap.getShiftedCopy(Loc(0.0, 0.0, None, rot))
-
-print("Remapping completed, resulting map:")
+#imap.squareMap(0.5)
+print("Map remapped, resulting map:")
 imap.debugPrint()
-'''
+if DEBUG >=2:
+    print(debugmap.getRotFit(imap))
+    print(debugmap.getPosFit(imap))
+
 '''
 At this point we have a nice map containing the following:
 - exactly four corner bottles
