@@ -142,13 +142,13 @@ class Loc(object):
             elif rotb-rota > pi:
                 rotb -= 2*pi
             wrot = w*rota + iw*rotb
-        elif self.pdev != None:
+        elif self.rot != None:
             wrot = self.rot
         else:
             wrot = loc.rot
         if self.rdev != None and loc.rdev != None:
             wrdev = float(pow(self.rdev,w)*pow(loc.rdev,iw))/sqrt(2)
-        elif self.pdev != None:
+        elif self.rdev != None:
             wrdev = self.rdev
         else:
             wrdev = loc.rdev
