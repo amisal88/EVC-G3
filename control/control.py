@@ -48,8 +48,9 @@ Assumed functions in Arduino:
 '''
 
 # debug settings ------------------------------------------------------------- #
-DEBUG = 1       # debug print level: 0 = off, 1 = basic, 2 = medium, 3 = all
-ADVANCED = True # give incorrect input
+VERBOSE = 1     # debug print level: 0 = off, 1 = basic, 2 = medium, 3 = all
+DEBUG = True    # enable/disable test environment
+ADVANCED = True # test environment produces incorrect input/output
 XSCALE = 16     # a terminal character width represents XSCALE centimeters
 YSCALE = 34     # a terminal character height represents YSCALE centimeters
 
@@ -211,7 +212,7 @@ class Obj(object):
         weight_views = float(self.views) / (self.views+obj.views)
         weight_pdev = 1 - float(self.pos.pdev) / (self.pos.pdev+obj.pos.pdev)
         weight_total = 0.0*weight_prob + 0.7*weight_views + 0.3*weight_pdev # TODO: tweak these values
-        if DEBUG >= 3:
+        if VERBOSE >= 3:
             print("w1: {:5.3f}, w2: {:5.3f}, w3: {:5.3f}, wt: {:5.3f}".format(weight_prob, weight_views, weight_pdev, weight_total))
         self.pos = self.pos.wavg(obj.pos, weight_total)
         self.views += obj.views
@@ -401,7 +402,7 @@ class Map(object):
                 rota = obj.pos.getAngle()
                 rotb = match.pos.getAngle()
                 drot = (rotb-rota+pi) % (2*pi) - pi
-                if DEBUG >= 3:
+                if VERBOSE >= 3:
                     print("rota: {:5.3}\trotb: {:5.3}\tdrot: {:5.3}".format(rota, rotb, drot))
                 if abs(drot) < vec.rdev:
                     rdif.append(drot)
@@ -423,7 +424,7 @@ class Map(object):
                 dx = obj.pos.x - match.pos.x
                 dy = obj.pos.y - match.pos.y
                 magic = (1 + obj.pos.pdev + match.pos.pdev) # TODO: tweak this formula
-                if DEBUG>3:
+                if VERBOSE>3:
                     print(dx, dy, magic)
                 sumx += dx/magic
                 sumy += dy/magic
@@ -448,14 +449,14 @@ class Map(object):
     # find the four corner bottles, calculate reshaping of map using fact that
     # map should be rectangular, adjust objects on map using weight w
     def squareMap(self, w):
-        if DEBUG >=2 :
+        if VERBOSE >= 2:
             print("Squaring corners:")
         yellow = imap.getBottle("yellow")
         orange = imap.getBottle("orange")
         blue = imap.getBottle("blue")
         purple = imap.getBottle("purple")
         if not (yellow and orange or blue and purple) or not (orange and blue or purple and yellow):
-            if DEBUG >= 2:
+            if VERBOSE >= 2:
                 print("Not enough bottles detected for proper squaring")
         print("Not yet implemented!") # TODO: implement
 
@@ -514,104 +515,146 @@ class Map(object):
 ''// test map & vision + Arduino placeholders ------------------------------//''
 '//------------------------------------------------------------------------//'''
 # create test map ------------------------------------------------------------ #
-debugmap = Map()
-xmin = 0.0
-xmax = random.randint(500, 1000)
-ymin = 0.0
-ymax = random.randint(700, 1000)
-debugmap.add(Bottle(1.0, Loc(xmin, ymin, 0.0), 'yellow'))
-debugmap.add(Bottle(1.0, Loc(xmin, ymax, 0.0), 'orange'))
-debugmap.add(Bottle(1.0, Loc(xmax, ymax, 0.0), 'blue'))
-debugmap.add(Bottle(1.0, Loc(xmax, ymin, 0.0), 'purple'))
-names = ['Inaki', 'Oudman', 'Amin']
-boxes = 0
-for i in range(3):
-    good = False
-    while not good:
-        x = random.randint(50, xmax-50)
-        y = random.randint(50, ymax-50)
-        good = True
-        for obj in debugmap.objs:
-            if obj.pos.getDist(Loc(x, y)) < 100:
-                good = False
-    cone = Cone(1.0, Loc(x, y, 0.0))
-    cone.setName(names[i])
-    debugmap.add(cone)
-    n = random.randint(1, 3)
-    for j in range(n):
-        xp = random.randint(x-25, x+25)
-        yp = random.randint(y-25, y+25)
-        rot = 2*pi*random.rand()
-        dest = random.randint(0,3)
-        if dest != i and boxes < 3:
-            box = Box(1.0, Loc(xp, yp, 0.0, rot, 0.0))
-            box.setData(names[i], names[dest])
-            debugmap.add(box)
-            boxes += 1
-robotx = random.randint(50, xmax-50)
-roboty = random.randint(50, ymax-50)
-robotrot = 2*pi*random.rand()
-debugmap = debugmap.getShiftedCopy(Loc(-robotx, -roboty, None, -robotrot))
-robot = Obj(1.0, Loc(0.0, 0.0, 0.0, 0.0, 0.0))
 if DEBUG:
+    debugmap = Map()
+    xmin = 0.0
+    xmax = random.randint(500, 1000)
+    ymin = 0.0
+    ymax = random.randint(700, 1000)
+    debugmap.add(Bottle(1.0, Loc(xmin, ymin, 0.0), 'yellow'))
+    debugmap.add(Bottle(1.0, Loc(xmin, ymax, 0.0), 'orange'))
+    debugmap.add(Bottle(1.0, Loc(xmax, ymax, 0.0), 'blue'))
+    debugmap.add(Bottle(1.0, Loc(xmax, ymin, 0.0), 'purple'))
+    names = ['Inaki', 'Oudman', 'Amin']
+    boxes = 0
+    for i in range(3):
+        good = False
+        while not good:
+            x = random.randint(50, xmax-50)
+            y = random.randint(50, ymax-50)
+            good = True
+            for obj in debugmap.objs:
+                if obj.pos.getDist(Loc(x, y)) < 100:
+                    good = False
+        cone = Cone(1.0, Loc(x, y, 0.0))
+        cone.setName(names[i])
+        debugmap.add(cone)
+        n = random.randint(1, 3)
+        for j in range(n):
+            xp = random.randint(x-25, x+25)
+            yp = random.randint(y-25, y+25)
+            rot = 2*pi*random.rand()
+            dest = random.randint(0,3)
+            if dest != i and boxes < 3:
+                box = Box(1.0, Loc(xp, yp, 0.0, rot, 0.0))
+                box.setData(names[i], names[dest])
+                debugmap.add(box)
+                boxes += 1
+    robotx = random.randint(50, xmax-50)
+    roboty = random.randint(50, ymax-50)
+    robotrot = 2*pi*random.rand()
+    debugmap = debugmap.getShiftedCopy(Loc(-robotx, -roboty, None, -robotrot))
+    robot = Obj(1.0, Loc(0.0, 0.0, 0.0, 0.0, 0.0))
     print("Debug map created:")
     debugmap.debugPrint()
     print("Robot placed at position ({}, {}) with rotation {:5.3f}\n".format(robotx, roboty, robotrot))
 
 
-# vision thread placeholder, uses test map ----------------------------------- #
+# vision thread placeholder -------------- ----------------------------------- #
 def getSurroundings():
-    if DEBUG >= 3:
-        print("getSurroundings()")
-    objects_list = []
-    for obj in debugmap.objs:
-        dist = obj.getDist(robot)
-        angle = (obj.getAngle(robot) + pi) % (2*pi) - pi
-        if angle > (-pi/3) and angle < (pi/3) and not isinstance(obj, Box):
-            if DEBUG >= 3:
-                print("\tObject: {}".format(obj))
-                print("\tObject in sight? Dist: {:5.1f}, angle: {:5.2f}.".format(dist, angle))
-            rnd = random.rand()
-            if not ADVANCED or 250.0/dist >= rnd:
-                if ADVANCED:
-                    prob = 0.8
-                    magic = 50.0/(dist+25)
-                    angle += (magic*random.rand() - magic/2)
-                    magic = float(dist)/2000+0.1
-                    dist = (1 + magic*random.rand() - magic/2) * dist
-                    pdev = magic*dist/2+10
+    if DEBUG:
+        if VERBOSE >= 3:
+            print("getSurroundings()")
+        objects_list = []
+        for obj in debugmap.objs:
+            dist = obj.getDist(robot)
+            angle = (obj.getAngle(robot) + pi) % (2*pi) - pi
+            if angle > (-pi/3) and angle < (pi/3) and not isinstance(obj, Box):
+                if VERBOSE >= 3:
+                    print("\tObject: {}".format(obj))
+                    print("\tObject in sight? Dist: {:5.1f}, angle: {:5.2f}.".format(dist, angle))
+                rnd = random.rand()
+                if not ADVANCED or 250.0/dist >= rnd:
+                    if ADVANCED:
+                        prob = 0.8
+                        magic = 50.0/(dist+25)
+                        angle += (magic*random.rand() - magic/2)
+                        magic = float(dist)/2000+0.1
+                        dist = (1 + magic*random.rand() - magic/2) * dist
+                        pdev = magic*dist/2+10
+                    else:
+                        prob = 1.0
+                        pdev = 0.0
+                    if VERBOSE >= 3:
+                        print("\t\tYes, observed at dist {:5.1f} and angle {:5.2f} ({:4.2} > {:4.2})".format(dist, angle, float(250)/dist, rnd))
+                    posx = dist * sin(angle)
+                    posy = dist * cos(angle)
+                    if isinstance(obj, Bottle):
+                        objects_list.append({'name': 'bottle', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev, 'color': obj.color})
+                    elif isinstance(obj, Cone):
+                        objects_list.append({'name': 'cone', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev})
                 else:
-                    prob = 1.0
-                    pdev = 0.0
-                if DEBUG >= 3:
-                    print("\t\tYes, observed at dist {:5.1f} and angle {:5.2f} ({:4.2} > {:4.2})".format(dist, angle, float(250)/dist, rnd))
-                posx = dist * sin(angle)
-                posy = dist * cos(angle)
-                if isinstance(obj, Bottle):
-                    objects_list.append({'name': 'bottle', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev, 'color': obj.color})
-                elif isinstance(obj, Cone):
-                    objects_list.append({'name': 'cone', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev})
-            else:
-                if DEBUG >= 3:
-                    print("\t\tNope, too cloudy ({:4.2} < {:4.2})".format(float(250)/dist, rnd))
-    if DEBUG >= 3:
-        print("")
-    return objects_list
+                    if VERBOSE >= 3:
+                        print("\t\tNope, too cloudy ({:4.2} < {:4.2})".format(float(250)/dist, rnd))
+        if VERBOSE >= 3:
+            print("")
+        return objects_list
+    else:
+        print("Amin, please insert your code over here")
+        return None
 
 
-# Arduino placeholder -------------------------------------------------------- #
-def getPosition():
-    print('Postion requested')
-    return Loc(0,0)
+# Arduino placeholder: servo control ----------------------------------------- #
+def boxGrab(n):
+    if DEBUG:
+        print("TODO: implement grab(n)") # TODO: implement
+        return None
+    else:
+        print("TODO: implement grab(n)") # TODO: implement
+        return None
 
 
-# Arduino placeholder, uses test map ----------------------------------------- #
+# Arduino placeholder: servo control ----------------------------------------- #
+def boxDrop(n):
+    if DEBUG:
+        print("TODO: implement deliver(n)") # TODO: implement
+        return None
+    else:
+        print("TODO: implement deliver(n)") # TODO: implement
+        return None
+
+
+# Arduino placeholder: motion control ---------------------------------------- #
+def move(vec):
+    if DEBUG:
+        print("TODO: implement XYmove(vec.x, vec.y) and XYpose(vec.x, vec.y, vec.rot)") # TODO: implement
+        return None
+    else:
+        print("TODO: implement XYmove(vec.x, vec.y) and XYpose(vec.x, vec.y, vec.rot)") # TODO: implement
+        return None
+
+
+# Arduino placeholder: motion control ---------------------------------------- #
 def rotate(angle):
-    if DEBUG >= 2:
+    if VERBOSE >= 2:
         print('Rotate by {} radians\n'.format(angle))
-        sleep(1)
-    global debugmap
-    debugmap = debugmap.getShiftedCopy(Loc(0.0, 0.0, None, -angle))
+    if DEBUG:
+        global debugmap
+        debugmap = debugmap.getShiftedCopy(Loc(0.0, 0.0, None, -angle))
+    else:
+        print("TODO: implement rotate(angle)") # TODO: implement
+        return None
+
+
+# Arduino placeholder: motion control ---------------------------------------- #
+def backoff(dist):
+    if DEBUG:
+        print("TODO: implement backoff(dist)") # TODO: implement
+        return None
+    else:
+        print("TODO: implement backoff(dist)") # TODO: implement
+        return None
+
 
 
 
@@ -666,7 +709,7 @@ environment = getSurroundings()
 for i in environment:
     imap.add(parse(i))
 
-if DEBUG >= 2:
+if VERBOSE >= 2:
     print("Initial view, starting map:")
     imap.debugPrint()
     print("Robot at (0.0, 0.0) with rotation 0.0\n")
@@ -686,14 +729,14 @@ while (rot < 2*pi - step/2):
     for i in environment:
         view.add(parse(i))
 
-    if DEBUG >= 3:
+    if VERBOSE >= 3:
         print("View at rotation {:5.3f}".format(rot))
         view.debugPrint()
 
     # adjust assumed rotation step to step'
     stepp = imap.getRotFit(view, Loc(0.0, 0.0, None, step, float(step)/2))
     rot += (stepp-step)
-    if DEBUG >= 3:
+    if VERBOSE >= 3:
         print("Observed rotation: {:5.3f}".format(stepp))
     
     # remap position of observed objects to coordinate system of map
@@ -703,11 +746,11 @@ while (rot < 2*pi - step/2):
     # update map
     imap.update(view)
 
-    if DEBUG >= 2:
+    if VERBOSE >= 2:
         print("Updated map")
         imap.debugPrint()
 
-if DEBUG:
+if VERBOSE:
     print("Stage I completed, resulting map:")
     imap.debugPrint()
     print("")
@@ -724,7 +767,7 @@ print("+------------------------------------------------------------------------
 #imap.squareMap(0.5)
 print("Map remapped, resulting map:")
 imap.debugPrint()
-if DEBUG >=2:
+if VERBOSE >= 2:
     print(debugmap.getRotFit(imap))
     print(debugmap.getPosFit(imap))
 
