@@ -293,6 +293,7 @@ class Box(Obj):
     def __str__(self):
         return super(Box, self).__str__() + "\torigin: {}\tdest: {}\tdelivered: {}".format(self.origin, self.dest, self.delivered)
 
+    # getters/setters
     def getDest(self):
         return self.dest
 
@@ -340,6 +341,9 @@ class Map(object):
             if bottle.prob == maxprob:
                 return bottle
 
+    def getCones(self):
+        return [obj for obj in self.objs if isinstance(obj, Cone)]
+
     def setSize(self, x, y):
         self.width = x
         self.length = y
@@ -349,21 +353,22 @@ class Map(object):
         self.objs.append(obj)
 
     # add robot location
-    def addMark(self, mark=Loc(0.0, 0.0, 0, 0, 0)):
-        self.marks.append(mark)
+    def addMark(self):
+        self.marks.append(Loc(0.0, 0.0, 0, 0, 0))
 
-    # duplicates map, with all elements shifted over distance (vec.x, vec.y),
-    # then rotated by vec.rot radians over point (0.0, 0.0)
-    def getShiftedCopy(self, vec):
-        copy = Map()
+    # shift all map elements over distance (vec.x, vec.y) then rotate by
+    # vec.rot radians over point (0.0, 0.0)
+    def shiftMap(self, vec):
         for obj in self.objs:
-            tmp = deepcopy(obj)
-            tmp.remap(vec)
-            copy.add(tmp)
+            obj.remap(vec)
         for mark in self.marks:
-            tmp = deepcopy(mark)
-            tmp.remap(vec)
-            copy.addMark(tmp)
+            mark.remap(vec)
+
+    # duplicate map, shift all elements over distance (vec.x, vec.y), then
+    # rotate by vec.rot radians over point (0.0, 0.0)
+    def getShiftedCopy(self, vec):
+        copy = deepcopy(self)
+        copy.shiftMap(vec)
         return copy
 
     # find match between objects on map and new object. If no match found,
@@ -534,7 +539,7 @@ if DEBUG:
             y = random.randint(50, ymax-50)
             good = True
             for obj in debugmap.objs:
-                if obj.pos.getDist(Loc(x, y)) < 100:
+                if obj.pos.getDist(Loc(x, y)) < 200:
                     good = False
         cone = Cone(1.0, Loc(x, y, 0.0))
         cone.setName(names[i])
@@ -553,7 +558,7 @@ if DEBUG:
     robotx = random.randint(50, xmax-50)
     roboty = random.randint(50, ymax-50)
     robotrot = 2*pi*random.rand()
-    debugmap = debugmap.getShiftedCopy(Loc(-robotx, -roboty, None, -robotrot))
+    debugmap.shiftMap(Loc(-robotx, -roboty, None, -robotrot))
     robot = Obj(1.0, Loc(0.0, 0.0, 0.0, 0.0, 0.0))
     print("Debug map created:")
     debugmap.debugPrint()
@@ -600,7 +605,7 @@ def getSurroundings():
             print("")
         return objects_list
     else:
-        print("Amin, please insert your code over here")
+        print("TODO: link visual thread") # TODO: implement
         return None
 
 
@@ -637,10 +642,17 @@ def move(vec):
 # Arduino placeholder: motion control ---------------------------------------- #
 def rotate(angle):
     if VERBOSE >= 2:
-        print('Rotate by {} radians\n'.format(angle))
+        print('Rotate by {:5.3f} radians\n'.format(angle))
     if DEBUG:
         global debugmap
-        debugmap = debugmap.getShiftedCopy(Loc(0.0, 0.0, None, -angle))
+        if ADVANCED:
+            deviation = 0.2
+            angle += 2*deviation*angle*random.rand() - deviation*angle
+            debugmap.shiftMap(Loc(0.0, 0.0, None, -angle))
+            if VERBOSE >= 2:
+                print("Actual rotation: {:5.3} radians".format(angle))
+        else:
+            debugmap.shiftMap(Loc(0.0, 0.0, None, -angle))
     else:
         print("TODO: implement rotate(angle)") # TODO: implement
         return None
@@ -740,9 +752,9 @@ while (rot < 2*pi - step/2):
         print("Observed rotation: {:5.3f}".format(stepp))
     
     # remap position of observed objects to coordinate system of map
-    imap = imap.getShiftedCopy(Loc(0.0, 0.0, None, -stepp))
+    imap.shiftMap(Loc(0.0, 0.0, None, -stepp))
     imap.addMark()
-    
+
     # update map
     imap.update(view)
 
@@ -767,14 +779,13 @@ print("+------------------------------------------------------------------------
 #imap.squareMap(0.5)
 print("Map remapped, resulting map:")
 imap.debugPrint()
-if VERBOSE >= 2:
+if DEBUG and VERBOSE >= 2:
     print(debugmap.getRotFit(imap))
     print(debugmap.getPosFit(imap))
 
 '''
 At this point we have a nice map containing the following:
-- exactly four corner bottles
-- a map border
+- TODO: exactly four corner bottles
 - our own position and rotation
 - some, maybe not all, cones
 
