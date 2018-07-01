@@ -12,6 +12,7 @@ import RPi.GPIO as gp
 from pyzbar import pyzbar
 import math
 import pickle
+import face_recognition
 
 def intersect(l1, l2):
 	delta = np.array([l1[1] - l1[0], l2[1] - l2[0]]).astype(np.float32)
@@ -148,6 +149,7 @@ def convex_hull_pointing_up(ch):
 class Object_detector:
 	def __init__(self, debug_on):
 		self.__faces_data = pickle.loads(open('encodings_hog.pickle', "rb").read())
+		self.__NumberofCones = 6
 		self.__focalLength = 1211 # 327
 		self.__xScale = 0.001 # 0.004
 		self.__FishEye_Compenstae_ON = 0
@@ -281,8 +283,11 @@ class Object_detector:
 						if i < 3: # not orange or cone
 							c = max(cnts, key=cv2.contourArea)
 							M = cv2.moments(c)
-							cX = int(M["m10"] / M["m00"])
-							cY = int(M["m01"] / M["m00"])
+							if M["m00"] != 0:
+								cX = int(M["m10"] / M["m00"])
+								cY = int(M["m01"] / M["m00"])
+							else:
+								cX, cY = 0, 0
 							
 							if (self.__debug_on == 1):
 								cv2.drawContours(frame,[c],0,(0,255,0),3)
@@ -317,69 +322,95 @@ class Object_detector:
 							#print focalLength
 							
 						else:
-							c = max(cnts, key=cv2.contourArea)
-							M = cv2.moments(c)
-							cX = int(M["m10"] / M["m00"])
-							cY = int(M["m01"] / M["m00"])
-							
-							if (self.__debug_on == 1):
-								cv2.drawContours(frame,[c],0,(0,255,0),3)
-								cv2.putText(frame, self.__color_names[i], (cX - 20, cY - 20),
-								cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-							
-							if convex_hull_pointing_up(c):
-								if (self.__debug_on == 1):
-									cv2.drawContours(frame,[c],0,(0,255,0),3)
-									cv2.putText(frame, "cone", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-								object_properties['name'] = 'cone';
-								object_properties['color'] = 'orange';
-								x,y,w,h = cv2.boundingRect(c)
-								if (h > 380):
-									self.__focalLength = 327.0;
-									self.__camera.resolution = (640, 480)
-									self.__FishEye_Compenstae_ON = 1
-									self.__xCenter = (640/2)
-									self.__xScale = 0.004
-									objects_list_low_resolution = self.objects_process()
-									self.__xScale = 0.001
-									self.__xCenter = (2560/2)
-									self.__FishEye_Compenstae_ON = 0
-									self.__camera.resolution = (2560, 720)
-									self.__focalLength = 1211.0;
-									return objects_list_low_resolution
-								depth = (17.5 * self.__focalLength) / h
-								object_properties['position'] = (self.__xScale * depth *(cX - self.__xCenter ), depth)
+							#c = max(cnts, key=cv2.contourArea)
+							Max_c = max(cnts, key=cv2.contourArea)
+							Max_area = cv2.contourArea(Max_c)
+							cnts = sorted(cnts, key=cv2.contourArea)
+							kk = 0
+							for jj in range(0, min(len(cnts) , self.__NumberofCones)):
+								print 'lelen'
+								print len(cnts)
+								kk = kk - 1
+								c = cnts[kk]
+								if (cv2.contourArea(c) > (0.1 * Max_area)):
+									M = cv2.moments(c)
+									if M["m00"] != 0:
+										cX = int(M["m10"] / M["m00"])
+										cY = int(M["m01"] / M["m00"])
+									else:
+										cX, cY = 0, 0
+									
+									if (self.__debug_on == 1):
+										cv2.drawContours(frame,[c],0,(0,255,0),3)
+										cv2.putText(frame, self.__color_names[i], (cX - 20, cY - 20),
+										cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+									
+									if convex_hull_pointing_up(c):
+										if (self.__debug_on == 1):
+											cv2.drawContours(frame,[c],0,(0,255,0),3)
+											cv2.putText(frame, "cone", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+										object_properties['name'] = 'cone';
+										object_properties['color'] = 'orange';
+										x,y,w,h = cv2.boundingRect(c)
+										if (h > 380):
+											self.__focalLength = 327.0;
+											self.__camera.resolution = (640, 480)
+											self.__FishEye_Compenstae_ON = 1
+											self.__xCenter = (640/2)
+											self.__xScale = 0.004
+											objects_list_low_resolution = self.objects_process()
+											self.__xScale = 0.001
+											self.__xCenter = (2560/2)
+											self.__FishEye_Compenstae_ON = 0
+											self.__camera.resolution = (2560, 720)
+											self.__focalLength = 1211.0;
+											return objects_list_low_resolution
+										depth = (17.5 * self.__focalLength) / h
+										object_properties['position'] = (self.__xScale * depth *(cX - self.__xCenter ), depth)
+										
+										# x calibration 
+										KNOWN_DISTANCE = 100.0
+										KNOWN_x_world = 40.0
+										KNOWN_x_pixel = 1800.0
+										print 'x_scale'
+										print KNOWN_x_world/(((17.5 * self.__focalLength) / h)*(cX - self.__xCenter))
+										
+										
+										
+										# focal length calibration 
+										KNOWN_DISTANCE = 100.0
+										KNOWN_HEIGHT = 17.5
+										x,y,w,h = cv2.boundingRect(c)
+										focalLength = (h * KNOWN_DISTANCE) / KNOWN_HEIGHT
+										print 'focalLength'
+										print focalLength
+										print 'h'
+										print h
+										
+										objects_list.append(object_properties.copy())
+									else:
+										if (self.__debug_on == 1):
+											cv2.drawContours(frame,[c],0,(0,255,0),3)
+											cv2.putText(frame, "bottle_orange", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+										object_properties['name'] = 'bottle'
+										object_properties['color'] = self.__color_names[i];
+										x,y,w,h = cv2.boundingRect(c)
+										if (h > 380):
+											self.__focalLength = 327.0;
+											self.__camera.resolution = (640, 480)
+											self.__FishEye_Compenstae_ON = 1
+											self.__xCenter = (640/2)
+											self.__xScale = 0.004
+											objects_list_low_resolution = self.objects_process()
+											self.__xScale = 0.001
+											self.__xCenter = (2560/2)
+											self.__FishEye_Compenstae_ON = 0
+											self.__camera.resolution = (2560, 720)
+											self.__focalLength = 1211.0;
+											return objects_list_low_resolution
+										depth = (26.0 * self.__focalLength) / h
+										object_properties['position'] = (self.__xScale * depth *(cX - self.__xCenter ), depth)
 								
-								# x calibration 
-								KNOWN_DISTANCE = 100.0
-								KNOWN_x_world = 40.0
-								KNOWN_x_pixel = 1800.0
-								print 'x_scale'
-								print KNOWN_x_world/(((17.5 * self.__focalLength) / h)*(cX - self.__xCenter))
-								
-								
-								
-								# focal length calibration 
-								KNOWN_DISTANCE = 100.0
-								KNOWN_HEIGHT = 17.5
-								x,y,w,h = cv2.boundingRect(c)
-								focalLength = (h * KNOWN_DISTANCE) / KNOWN_HEIGHT
-								print 'focalLength'
-								print focalLength
-								print 'h'
-								print h
-								
-								objects_list.append(object_properties.copy())
-							else:
-								if (self.__debug_on == 1):
-									cv2.drawContours(frame,[c],0,(0,255,0),3)
-									cv2.putText(frame, "bottle_orange", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-								object_properties['name'] = 'bottle'
-								object_properties['color'] = self.__color_names[i];
-								marker = cv2.minAreaRect(c)
-								object_properties['position'] = (cX, (26.0 * self.__focalLength) / marker[1][1])
-								objects_list.append(object_properties.copy())
-							
 							
 									
 								
@@ -392,6 +423,8 @@ class Object_detector:
 
 	def qr_process(self):
 
+		self.__camera.resolution = (640, 480)
+		self.__FishEye_Compenstae_ON = 1
 		self.__camera.capture(self.__rawCapture, format="bgr")
 		frameR = self.__rawCapture.array
 		map1R, map2R = cv2.fisheye.initUndistortRectifyMap(self.__KR, self.__DR, np.eye(3), self.__KR, self.__DIM, cv2.CV_16SC2)
@@ -425,7 +458,9 @@ class Object_detector:
 					QR_code_properties['name'] = format(barcodeData).encode('utf-8') 
 		if (self.__debug_on == 1):
 			cv2.imshow('QR code', image)
-			k = cv2.waitKey(100)		
+			k = cv2.waitKey(100)
+		self.__FishEye_Compenstae_ON = 0
+		self.__camera.resolution = (2560, 720)
 		return QR_code_properties
 
 	
@@ -567,6 +602,8 @@ class Object_detector:
 		return objects_list
 		
 	def faces_process(self):
+		self.__camera.resolution = (640, 480)
+		self.__FishEye_Compenstae_ON = 1
 
 		# grab the current frame
 		self.__camera.capture(self.__rawCapture, format="bgr")
@@ -626,6 +663,7 @@ class Object_detector:
 			# show the output image
 			cv2.imshow("Image", image)
 			cv2.waitKey(100)
-			
+		self.__FishEye_Compenstae_ON = 0
+		self.__camera.resolution = (2560, 720)
 		return names
  

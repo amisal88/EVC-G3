@@ -20,6 +20,8 @@ def main():
                         print i, d[i]
                         
 ##                QR_code = Object_detector_inst.qr_process();
+		#names = Object_detector_inst.faces_process();
+                #print names
 ##                print QR_code
                         
 		
