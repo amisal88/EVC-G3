@@ -147,8 +147,12 @@ def convex_hull_pointing_up(ch):
 
 class Object_detector:
 	def __init__(self, debug_on):
-	
-		self.__focalLength = 303.4005
+		self.__faces_data = pickle.loads(open('encodings_hog.pickle', "rb").read())
+		self.__focalLength = 1211 # 327
+		self.__xScale = 0.001 # 0.004
+		self.__FishEye_Compenstae_ON = 0
+		self.__xCenter = (2560/2)#(640/2)
+		
 		file = open('Left_Stereo_Map_file.txt', 'r')
 		self.__Left_Stereo_Map = pickle.load(file)
 		file.close()
@@ -181,21 +185,24 @@ class Object_detector:
 		self.__wls_filter.setSigmaColor(self.__sigma)
 
 		self.__debug_on = debug_on
-		self.__blueLower = (78, 157, 73)
-		self.__blueUpper = (106, 255, 255)
+		self.__blueLower = (54, 207, 153)
+		self.__blueUpper = (181, 255, 255)
 
-		self.__purpleLower = (142, 95, 74)
-		self.__purpleUpper = (169, 255, 255)
+		self.__purpleLower = (138, 80, 68)
+		self.__purpleUpper = (173, 255, 255)
 
-		self.__orangeLower = (32, 153, 40)
-		self.__orangeUpper = (214, 244, 255)
+		self.__orangeLower = (0, 92, 100)
+		self.__orangeUpper = (7, 255, 255)
 
-		self.__yellowLower = (26, 82, 112)
-		self.__yellowUpper = (31, 255, 255)
+		self.__yellowLower = (20, 76, 150)
+		self.__yellowUpper = (50, 255, 255)
 		
-		self.__color_codes_upper = [self.__blueUpper, self.__purpleUpper, self.__orangeUpper, self.__yellowUpper]
-		self.__color_codes_lower = [self.__blueLower, self.__purpleLower, self.__orangeLower, self.__yellowLower]
-		self.__color_names = ['BLUE' , 'PURPLE', 'ORANGE', 'YELLOW']
+		self.__coneLower = (174, 159, 164)
+		self.__coneUpper = (177, 255, 255)
+		
+		self.__color_codes_upper = [self.__blueUpper, self.__purpleUpper, self.__yellowUpper, self.__orangeUpper, self.__coneUpper]
+		self.__color_codes_lower = [self.__blueLower, self.__purpleLower, self.__yellowLower, self.__orangeLower, self.__coneLower]
+		self.__color_names = ['blue' , 'purple', 'yellow', 'orange', 'cone']
 		
 		self.__DIM=(640, 480)
 		self.__KL=np.array([[310.89487794241705, 0.0, 310.4701490632405], [0.0, 311.6045360428195, 217.332401108332], [0.0, 0.0, 1.0]])
@@ -203,6 +210,13 @@ class Object_detector:
 		self.__KR=np.array([[311.9993342853497, 0.0, 288.39779549515345], [0.0, 312.9238338162564, 233.89810329394894], [0.0, 0.0, 1.0]])
 		self.__DR=np.array([[-0.035125623121583065], [0.0721407010760906], [-0.1341791663672435], [0.07146034215266592]])
 		
+		#self.__DIM=(2560, 720)
+		#self.__KL=np.array([[1312.7561575169264, 0.0, 1243.9785618233964], [0.0, 1319.9570065829275, 181.55794724721528], [0.0, 0.0, 1.0]])
+		#self.__DL=np.array([[-0.027921856911960495], [-0.5309936524548845], [13.887341952399481], [-71.30274940957545]])
+		#self.__KR=np.array([[1267.6200754096494, 0.0, 1175.8229642050703], [0.0, 1277.097182371003, 263.6310009704831], [0.0, 0.0, 1.0]])
+		#self.__DR=np.array([[0.13028905994074766], [-5.499980327032473], [66.23905695079091], [-281.539690831334]])
+		
+
 		# initialize the camera and grab a reference to the raw camera capture
 		gp.setwarnings(False)
 		gp.setmode(gp.BOARD)
@@ -226,7 +240,8 @@ class Object_detector:
 		gp.output(12, True)
 		
 		self.__camera = PiCamera()
-		self.__camera.resolution = (640, 480)
+		#self.__camera.resolution = (640, 480)
+		self.__camera.resolution = (2560, 720)
 		self.__rawCapture = PiRGBArray(self.__camera)
 			
 		time.sleep(2.0)
@@ -235,21 +250,22 @@ class Object_detector:
 	def objects_process(self):
 
 		# grab the current frame
-		object_properties = {'name' : None, 'probability' : 0.0, 'position' : (0,0), 'distance' : 0.0 ,'stdev_p' : 0, 'rotation' : 0.0 , 'stdev_r': 0.0}
+		object_properties = {'name': None, 'position': (0.0, 0.0), 'color': None}
 		objects_list = []
 		self.__camera.capture(self.__rawCapture, format="bgr")
-		frameR = self.__rawCapture.array
-		map1R, map2R = cv2.fisheye.initUndistortRectifyMap(self.__KR, self.__DR, np.eye(3), self.__KR, self.__DIM, cv2.CV_16SC2)
-		frame = cv2.remap(frameR, map1R, map2R, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+		frame = self.__rawCapture.array
+		if (self.__FishEye_Compenstae_ON == 1):
+			map1R, map2R = cv2.fisheye.initUndistortRectifyMap(self.__KR, self.__DR, np.eye(3), self.__KR, self.__DIM, cv2.CV_16SC2)
+			frame = cv2.remap(frame, map1R, map2R, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
 		self.__rawCapture.truncate(0)
 		# resize the frame, blur it, and convert it to the HSV color space
-		blurred = cv2.GaussianBlur(frame, (11, 11), 0)
-		hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+		#blurred = cv2.GaussianBlur(frame, (11, 11), 0)
+		hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 		
-		for i in range(4):
+		for i in range(4,5):
 				mask = cv2.inRange(hsv, self.__color_codes_lower[i], self.__color_codes_upper[i])
-				mask = cv2.erode(mask, None, iterations=2)
-				mask = cv2.dilate(mask, None, iterations=2)
+				#mask = cv2.erode(mask, None, iterations=1)
+				#mask = cv2.dilate(mask, None, iterations=1)
 
 				# find contours in the mask and initialize the current
 				# (x, y) center of the ball
@@ -262,7 +278,7 @@ class Object_detector:
 						# find the largest contour in the mask, then use
 						# it to compute the minimum enclosing circle and
 						# centroid
-						if i != 2: # not orange
+						if i < 3: # not orange or cone
 							c = max(cnts, key=cv2.contourArea)
 							M = cv2.moments(c)
 							cX = int(M["m10"] / M["m00"])
@@ -273,61 +289,98 @@ class Object_detector:
 								cv2.putText(frame, self.__color_names[i], (cX - 20, cY - 20),
 								cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 							
-							object_properties['name'] = 'BOTTLE_'+self.__color_names[i];
-							object_properties['position'] = (cX, cY)
-							marker = cv2.minAreaRect(c)
-							object_properties['distance'] = (26.0 * self.__focalLength) / marker[1][1]
+							object_properties['name'] = 'bottle';
+							object_properties['color'] = self.__color_names[i];
+							x,y,w,h = cv2.boundingRect(c)
+							if (h > 380):
+								self.__focalLength = 327.0;
+								self.__camera.resolution = (640, 480)
+								self.__FishEye_Compenstae_ON = 1
+								self.__xCenter = (640/2)
+								self.__xScale = 0.004
+								objects_list_low_resolution = self.objects_process()
+								self.__xScale = 0.001
+								self.__xCenter = (2560/2)
+								self.__FishEye_Compenstae_ON = 0
+								self.__camera.resolution = (2560, 720)
+								self.__focalLength = 1211.0;
+								return objects_list_low_resolution
+							depth = (26.0 * self.__focalLength) / h
+							object_properties['position'] = (self.__xScale * depth *(cX - self.__xCenter ), depth)
 							objects_list.append(object_properties.copy())
 							# focal length calibration 
-							KNOWN_DISTANCE = 60.0
-							KNOWN_HEIGHT = 26.0
-							marker = cv2.minAreaRect(c)
-							focalLength = (marker[1][1] * KNOWN_DISTANCE) / KNOWN_HEIGHT
-							print 'focalLength'
-							print focalLength
+							#KNOWN_DISTANCE = 60.0
+							#KNOWN_HEIGHT = 26.0
+							#x,y,w,h = cv2.boundingRect(c)
+							#focalLength = (h * KNOWN_DISTANCE) / KNOWN_HEIGHT
+							#print 'focalLength'
+							#print focalLength
 							
 						else:
-							img_edges = cv2.Canny(mask.copy(), 80, 160)
-							_, contours, _ = cv2.findContours(np.array(img_edges), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+							c = max(cnts, key=cv2.contourArea)
+							M = cv2.moments(c)
+							cX = int(M["m10"] / M["m00"])
+							cY = int(M["m01"] / M["m00"])
 							
-							approx_contours = []
-							for c in contours:
-								approx = cv2.approxPolyDP(c, 10, closed = True)
-								approx_contours.append(approx)
+							if (self.__debug_on == 1):
+								cv2.drawContours(frame,[c],0,(0,255,0),3)
+								cv2.putText(frame, self.__color_names[i], (cX - 20, cY - 20),
+								cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 							
-							all_convex_hulls = []
-							for ac in approx_contours:
-								all_convex_hulls.append(cv2.convexHull(ac))
+							if convex_hull_pointing_up(c):
+								if (self.__debug_on == 1):
+									cv2.drawContours(frame,[c],0,(0,255,0),3)
+									cv2.putText(frame, "cone", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+								object_properties['name'] = 'cone';
+								object_properties['color'] = 'orange';
+								x,y,w,h = cv2.boundingRect(c)
+								if (h > 380):
+									self.__focalLength = 327.0;
+									self.__camera.resolution = (640, 480)
+									self.__FishEye_Compenstae_ON = 1
+									self.__xCenter = (640/2)
+									self.__xScale = 0.004
+									objects_list_low_resolution = self.objects_process()
+									self.__xScale = 0.001
+									self.__xCenter = (2560/2)
+									self.__FishEye_Compenstae_ON = 0
+									self.__camera.resolution = (2560, 720)
+									self.__focalLength = 1211.0;
+									return objects_list_low_resolution
+								depth = (17.5 * self.__focalLength) / h
+								object_properties['position'] = (self.__xScale * depth *(cX - self.__xCenter ), depth)
 								
-							convex_hulls_3to10 = []
-							for ch in all_convex_hulls:
-								if 3 <= len(ch) <= 10:
-									convex_hulls_3to10.append(cv2.convexHull(ch))
-									
-							
-							for c in convex_hulls_3to10:
-								M = cv2.moments(c)
-								cX = int(M["m10"] / M["m00"])
-								cY = int(M["m01"] / M["m00"])
+								# x calibration 
+								KNOWN_DISTANCE = 100.0
+								KNOWN_x_world = 40.0
+								KNOWN_x_pixel = 1800.0
+								print 'x_scale'
+								print KNOWN_x_world/(((17.5 * self.__focalLength) / h)*(cX - self.__xCenter))
 								
-								if convex_hull_pointing_up(c):
-									if (self.__debug_on == 1):
-										cv2.drawContours(frame,[c],0,(0,255,0),3)
-										cv2.putText(frame, "cone", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-									object_properties['name'] = 'CONE';
-									object_properties['position'] = (cX, cY)
-									marker = cv2.minAreaRect(c)
-									object_properties['distance'] = (17.5 * self.__focalLength) / marker[1][1]
-									objects_list.append(object_properties.copy())
-								else:
-									if (self.__debug_on == 1):
-										cv2.drawContours(frame,[c],0,(0,255,0),3)
-										cv2.putText(frame, "bottle_orange", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-									object_properties['name'] = 'BOTTLE_'+self.__color_names[i];
-									object_properties['position'] = (cX, cY)
-									marker = cv2.minAreaRect(c)
-									object_properties['distance'] = (26.0 * self.__focalLength) / marker[1][1]
-									objects_list.append(object_properties.copy())
+								
+								
+								# focal length calibration 
+								KNOWN_DISTANCE = 100.0
+								KNOWN_HEIGHT = 17.5
+								x,y,w,h = cv2.boundingRect(c)
+								focalLength = (h * KNOWN_DISTANCE) / KNOWN_HEIGHT
+								print 'focalLength'
+								print focalLength
+								print 'h'
+								print h
+								
+								objects_list.append(object_properties.copy())
+							else:
+								if (self.__debug_on == 1):
+									cv2.drawContours(frame,[c],0,(0,255,0),3)
+									cv2.putText(frame, "bottle_orange", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+								object_properties['name'] = 'bottle'
+								object_properties['color'] = self.__color_names[i];
+								marker = cv2.minAreaRect(c)
+								object_properties['position'] = (cX, (26.0 * self.__focalLength) / marker[1][1])
+								objects_list.append(object_properties.copy())
+							
+							
 									
 								
 
@@ -379,7 +432,7 @@ class Object_detector:
 	def stereo_objects_process(self):
 
 		# grab the current frame
-		object_properties = {'name' : None, 'probability' : 0.0, 'position' : (0,0), 'distance' : 0.0 ,'stdev_p' : 0, 'rotation' : 0.0 , 'stdev_r': 0.0}
+		object_properties = {'name': None, 'position': (0.0, 0.0), 'color': None}
 		objects_list = []
 		self.__camera.capture(self.__rawCapture, format="bgr")
 		frameR = self.__rawCapture.array
@@ -422,7 +475,7 @@ class Object_detector:
 		blurred = cv2.GaussianBlur(frame, (11, 11), 0)
 		hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
 		
-		for i in range(4):
+		for i in range(5):
 				mask = cv2.inRange(hsv, self.__color_codes_lower[i], self.__color_codes_upper[i])
 				mask = cv2.erode(mask, None, iterations=2)
 				mask = cv2.dilate(mask, None, iterations=2)
@@ -438,7 +491,7 @@ class Object_detector:
 						# find the largest contour in the mask, then use
 						# it to compute the minimum enclosing circle and
 						# centroid
-						if i != 2: # not orange
+						if i < 3: # not orange or cone
 							c = max(cnts, key=cv2.contourArea)
 							M = cv2.moments(c)
 							cX = int(M["m10"] / M["m00"])
@@ -449,10 +502,10 @@ class Object_detector:
 								cv2.putText(frame, self.__color_names[i], (cX - 20, cY - 20),
 								cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 							
-							object_properties['name'] = 'BOTTLE_'+self.__color_names[i];
-							object_properties['position'] = (cX, cY)
+							object_properties['name'] = 'bottle'
+							object_properties['color'] = self.__color_names[i];
 							marker = cv2.minAreaRect(c)
-							object_properties['distance'] = (32.0 * 0.51)/disp[cY, cX]
+							object_properties['position'] = (cX, (32.0 * 0.51)/disp[cY, cX])
 							objects_list.append(object_properties.copy())
 							# focal length calibration 
 							KNOWN_DISTANCE = 60.0
@@ -490,19 +543,19 @@ class Object_detector:
 									if (self.__debug_on == 1):
 										cv2.drawContours(frame,[c],0,(0,255,0),3)
 										cv2.putText(frame, "cone", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-									object_properties['name'] = 'CONE';
-									object_properties['position'] = (cX, cY)
+									object_properties['name'] = 'cone'
+									object_properties['color'] = 'orange';
 									marker = cv2.minAreaRect(c)
-									object_properties['distance'] = (32.0 * 0.51)/disp[cY, cX]
+									object_properties['position'] = (cX, (32.0 * 0.51)/disp[cY, cX])
 									objects_list.append(object_properties.copy())
 								else:
 									if (self.__debug_on == 1):
 										cv2.drawContours(frame,[c],0,(0,255,0),3)
 										cv2.putText(frame, "bottle_orange", (cX - 20, cY - 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-									object_properties['name'] = 'BOTTLE_'+self.__color_names[i];
-									object_properties['position'] = (cX, cY)
+									object_properties['name'] = 'bottle'
+									object_properties['color'] = self.__color_names[i];
 									marker = cv2.minAreaRect(c)
-									object_properties['distance'] = (32.0 * 0.51)/disp[cY, cX]
+									object_properties['position'] = (cX, (32.0 * 0.51)/disp[cY, cX])
 									objects_list.append(object_properties.copy())
 									
 								
@@ -513,4 +566,66 @@ class Object_detector:
 			cv2.waitKey(100)
 		return objects_list
 		
+	def faces_process(self):
+
+		# grab the current frame
+		self.__camera.capture(self.__rawCapture, format="bgr")
+		frameR = self.__rawCapture.array
+		map1R, map2R = cv2.fisheye.initUndistortRectifyMap(self.__KR, self.__DR, np.eye(3), self.__KR, self.__DIM, cv2.CV_16SC2)
+		image = cv2.remap(frameR, map1R, map2R, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+		self.__rawCapture.truncate(0)
+		# load the input image and convert it from BGR to RGB
+		rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+		# detect the (x, y)-coordinates of the bounding boxes corresponding
+		# to each face in the input image, then compute the facial embeddings
+		# for each face
+		boxes = face_recognition.face_locations(rgb, model='hog')
+		encodings = face_recognition.face_encodings(rgb, boxes)
+
+		# initialize the list of names for each face detected
+		names = []
+
+		# loop over the facial embeddings
+		for encoding in encodings:
+			# attempt to match each face in the input image to our known
+			# encodings
+			matches = face_recognition.compare_faces(self.__faces_data["encodings"], encoding)
+			name = "Unknown"
+
+			# check to see if we have found a match
+			if True in matches:
+				# find the indexes of all matched faces then initialize a
+				# dictionary to count the total number of times each face
+				# was matched
+				matchedIdxs = [i for (i, b) in enumerate(matches) if b]
+				counts = {}
+
+				# loop over the matched indexes and maintain a count for
+				# each recognized face face
+				for i in matchedIdxs:
+					name = self.__faces_data["names"][i]
+					counts[name] = counts.get(name, 0) + 1
+
+				# determine the recognized face with the largest number of
+				# votes (note: in the event of an unlikely tie Python will
+				# select first entry in the dictionary)
+				name = max(counts, key=counts.get)
+			
+			# update the list of names
+			names.append(name)
+
+		# loop over the recognized faces
+		if (self.__debug_on == 1):
+			for ((top, right, bottom, left), name) in zip(boxes, names):
+				# draw the predicted face name on the image
+				cv2.rectangle(image, (left, top), (right, bottom), (0, 255, 0), 2)
+				y = top - 15 if top - 15 > 15 else top + 15
+				cv2.putText(image, name, (left, y), cv2.FONT_HERSHEY_SIMPLEX,
+					0.75, (0, 255, 0), 2)
+
+			# show the output image
+			cv2.imshow("Image", image)
+			cv2.waitKey(100)
+			
+		return names
  
