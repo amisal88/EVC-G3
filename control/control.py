@@ -87,6 +87,10 @@ class Loc(object):
             str += " +/- {:5.3f}".format(self.rdev)
         return str
 
+    # return copy of inverse
+    def inverse(self):
+        return Loc(-self.x, -self.y, self.pdev, -self.rot, self.rdev)
+
     # calculate distance between loc and self
     def getDist(self, loc):
         return sqrt((self.x - loc.x)**2 + (self.y - loc.y)**2)
@@ -352,7 +356,7 @@ class Map(object):
     def add(self, obj):
         self.objs.append(obj)
 
-    # add robot location
+    # add robot location: call this function every time getSurroundings() is callid
     def addMark(self):
         self.marks.append(Loc(0.0, 0.0, 0, 0, 0))
 
@@ -565,7 +569,7 @@ if DEBUG:
     print("Robot placed at position ({}, {}) with rotation {:5.3f}\n".format(robotx, roboty, robotrot))
 
 
-# vision thread placeholder -------------- ----------------------------------- #
+# vision thread placeholder -------------------------------------------------- #
 def getSurroundings():
     if DEBUG:
         if VERBOSE >= 3:
@@ -632,8 +636,20 @@ def boxDrop(n):
 # Arduino placeholder: motion control ---------------------------------------- #
 def move(vec):
     if DEBUG:
-        print("TODO: implement XYmove(vec.x, vec.y) and XYpose(vec.x, vec.y, vec.rot)") # TODO: implement
-        return None
+        if VERBOSE >= 3:
+            print("backoff({})".format(dist))
+        if not vec.rot:
+            vec.rot = vec.getAngle() # TODO: replace this formula with correct formula
+        if ADVANCED:
+            vec.x *= 0.8 + 0.4*random.rand()
+            vec.y *= 0.8 + 0.4*random.rand()
+            vec.rot += (-0.1 + 0.2*random.rand()) * pi
+        debugmap.shiftMap(vec.inverse())
+        if ADVANCED:
+            vec.x *= 0.9 + 0.2*random.rand()
+            vec.y *= 0.9 + 0.2*random.rand()
+            vec.rot += (-0.05 + 0.1*random.rand()) * pi
+        return vec
     else:
         print("TODO: implement XYmove(vec.x, vec.y) and XYpose(vec.x, vec.y, vec.rot)") # TODO: implement
         return None
@@ -648,11 +664,10 @@ def rotate(angle):
         if ADVANCED:
             deviation = 0.2
             angle += 2*deviation*angle*random.rand() - deviation*angle
-            debugmap.shiftMap(Loc(0.0, 0.0, None, -angle))
             if VERBOSE >= 2:
                 print("Actual rotation: {:5.3} radians".format(angle))
-        else:
-            debugmap.shiftMap(Loc(0.0, 0.0, None, -angle))
+        debugmap.shiftMap(Loc(0.0, 0.0, None, -angle))
+        # TODO: implement return vec
     else:
         print("TODO: implement rotate(angle)") # TODO: implement
         return None
@@ -712,10 +727,10 @@ print("+------------------------------------------------------------------------
 
 # create empty initial map
 imap = Map()
-imap.addMark()
 
 # get environment
 environment = getSurroundings()
+imap.addMark()
 
 # place objects on map
 for i in environment:
@@ -757,7 +772,6 @@ while (rot < 2*pi - step/2):
 
     # update map
     imap.update(view)
-
     if VERBOSE >= 2:
         print("Updated map")
         imap.debugPrint()
@@ -776,12 +790,16 @@ print("+------------------------------------------------------------------------
 print("| REMAPPING STARTING                                                           |")
 print("+------------------------------------------------------------------------------+\n")
 
-#imap.squareMap(0.5)
-print("Map remapped, resulting map:")
-imap.debugPrint()
+# square map a bit
+#imap.squareMap(0.5) # TODO: tweak this value
+#print("Map remapped, resulting map:")
+#imap.debugPrint()
 if DEBUG and VERBOSE >= 2:
     print(debugmap.getRotFit(imap))
     print(debugmap.getPosFit(imap))
+
+# initialize gripper
+gripper = [None, None, None]
 
 '''
 At this point we have a nice map containing the following:
@@ -808,18 +826,56 @@ print("+------------------------------------------------------------------------
 print("| STAGE II STARTING                                                            |")
 print("+------------------------------------------------------------------------------+\n")
 print("TODO: stage II\n")
-# while there are cones with undelivered boxes next to it
-    # if gripper available
-        # move to nearest delivery address OR nearest cone with undelivered boxes
-    # else
-        # move to nearest delivery address
+
+# repeat grabbing and dropping of boxes until done
+done = False
+while not done:
+    if VERBOSE >= -2:
+        print("Let's drive!")
+
+    # make list of unvisited cones and box destination cone
+    newcones = [cone for cone in imap.getCones() if cone.toVisit()]
+    destcones = [box.dest for box in gripper if box != None and isinstance(box.dest, Cone)]
+    cones = newcones + destcones
+
+    # select nearest cone
+    dists = [cone.getDist() for cone in cones]
+    cone = cones[dists.index(min(dists))]
+    if VERBOSE >= -2:
+        print("Destination: {}".format(cone))
+
+    # drive to nearest relevant cone
+    angle = cone.getAngle()
+    if abs(angle) >= pi/2:
+        rotate(angle)
+        imap.shiftMap(Loc(0.0, 0.0, None, -angle))
+    dist = cone.getDist() - 40 # TODO: tweak this value
+    if dist > 0:
+        angle = cone.getAngle()
+        vec = Loc(dist*sin(angle), dist*cos(angle))
+        vec = move(vec)
+        imap.shiftMap(vec.inverse())
+
+    # if at unidentified cone:
+        # identify cone
+
     # if at delivery address
         # drop box
+        # set box to delivered
+
     # if at cone with undelivered boxes
         # pickup box
-# while there are undelivered boxes in our gripper
-    # move to nearest delivery address
-    # drop box
+        # read box data
+        # if last box at cone
+            # cone.boxesDone = True
+
+    # if list of unvisited cones is empty and list of undelivered boxes is empty
+        # done = True
+
+    if VERBOSE >= -2:
+        print("Updated map")
+        imap.debugPrint()
+    sleep(1)
 
 
 
