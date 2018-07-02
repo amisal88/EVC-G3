@@ -348,6 +348,9 @@ class Map(object):
     def getCones(self):
         return [obj for obj in self.objs if isinstance(obj, Cone)]
 
+    def getLastMark(self):
+        return self.marks[-1]
+
     def setSize(self, x, y):
         self.width = x
         self.length = y
@@ -637,18 +640,22 @@ def boxDrop(n):
 def move(vec):
     if DEBUG:
         if VERBOSE >= 3:
-            print("backoff({})".format(dist))
+            print("move({})".format(dist))
         if not vec.rot:
             vec.rot = vec.getAngle() # TODO: replace this formula with correct formula
         if ADVANCED:
             vec.x *= 0.8 + 0.4*random.rand()
             vec.y *= 0.8 + 0.4*random.rand()
             vec.rot += (-0.1 + 0.2*random.rand()) * pi
+            if VERBOSE >= 3:
+                print("Actual move: {}".format(vec))
         debugmap.shiftMap(vec.inverse())
         if ADVANCED:
             vec.x *= 0.9 + 0.2*random.rand()
             vec.y *= 0.9 + 0.2*random.rand()
             vec.rot += (-0.05 + 0.1*random.rand()) * pi
+            if VERBOSE >= 3:
+                print("Returned move: {}".format(vec))
         return vec
     else:
         print("TODO: implement XYmove(vec.x, vec.y) and XYpose(vec.x, vec.y, vec.rot)") # TODO: implement
@@ -657,17 +664,21 @@ def move(vec):
 
 # Arduino placeholder: motion control ---------------------------------------- #
 def rotate(angle):
-    if VERBOSE >= 2:
+    if VERBOSE >= 3:
         print('Rotate by {:5.3f} radians\n'.format(angle))
     if DEBUG:
         global debugmap
+        vec = Loc(0.0, 0.0, None, angle)
         if ADVANCED:
-            deviation = 0.2
-            angle += 2*deviation*angle*random.rand() - deviation*angle
-            if VERBOSE >= 2:
-                print("Actual rotation: {:5.3} radians".format(angle))
-        debugmap.shiftMap(Loc(0.0, 0.0, None, -angle))
-        # TODO: implement return vec
+            vec.rot += (-0.1 + 0.2*random.rand()) * pi
+            if VERBOSE >= 3:
+                print("Actual rotation: {:5.3} radians".format(vec.rot))
+        debugmap.shiftMap(vec.inverse())
+        if ADVANCED:
+            vec.rot += (-0.05 + 0.1*random.rand()) * pi
+            if VERBOSE >= 3:
+                print("Returned rotation: {:5.3} radians".format(vec.rot))
+        return vec
     else:
         print("TODO: implement rotate(angle)") # TODO: implement
         return None
@@ -747,22 +758,20 @@ step = 2 * pi / steps
 rot = 0
 while (rot < 2*pi - step/2):
     # rotate by step degrees, adjust for stepp
-    rotate(step)
-    rot += step
+    rvec = rotate(step)
 
     # get environment
     view = Map()
-    environment = getSurroundings()
-    for i in environment:
+    for i in getSurroundings():
         view.add(parse(i))
 
     if VERBOSE >= 3:
-        print("View at rotation {:5.3f}".format(rot))
+        print("View at rotation {:5.3f}".format(rvec.rot))
         view.debugPrint()
 
     # adjust assumed rotation step to step'
-    stepp = imap.getRotFit(view, Loc(0.0, 0.0, None, step, float(step)/2))
-    rot += (stepp-step)
+    stepp = imap.getRotFit(view, Loc(0.0, 0.0, None, rvec.rot, float(step)/2))
+    rot += stepp
     if VERBOSE >= 3:
         print("Observed rotation: {:5.3f}".format(stepp))
     
@@ -855,6 +864,8 @@ while not done:
         vec = Loc(dist*sin(angle), dist*cos(angle))
         vec = move(vec)
         imap.shiftMap(vec.inverse())
+    rvec = cone.pos.getDist(imap.getLastMark())
+    # adjust postion on map
 
     # if at unidentified cone:
         # identify cone
