@@ -3,8 +3,7 @@ from numpy import inf, random
 from math import sqrt, sin, cos, atan, pi
 from copy import deepcopy
 from statistics import median
-from vision import *
-import serial
+from enum import Enum
 
 '''
 tasks of control thread:
@@ -122,12 +121,11 @@ class Loc(object):
     def remap(self, vec):
         self.x += vec.x
         self.y += vec.y
-        if vec.rot:
-            newx = self.x * cos(vec.rot) + self.y * sin(vec.rot)
-            self.y = self.x * -sin(vec.rot) + self.y * cos(vec.rot)
-            self.x = newx
-            if self.rot != None:
-                self.rot += vec.rot
+        newx = self.x * cos(vec.rot) + self.y * sin(vec.rot)
+        self.y = self.x * -sin(vec.rot) + self.y * cos(vec.rot)
+        self.x = newx
+        if self.rot != None:
+            self.rot += vec.rot
 
     # take weighted average of two locations
     def wavg(self, loc, w):
@@ -162,21 +160,8 @@ class Loc(object):
 
     def matchError(self, loc):
         dst = self.getDist(loc)
-        if self.pdev and loc.pdev:
-            magic = 1 + self.pdev + loc.pdev # TODO: tweak this formula
-        else:
-            magic = 10 # TODO: tweak this value
-        dsterr = float(dst) / magic
-        if self.rot and loc.rot:
-            angle = min(abs(self.rot-loc.rot), abs(loc.rot-self.rot)) % 2*pi
-            if self.rdev and loc.rdev:
-                magic = 1 + self.rdev + loc.rdev # TODO: tweak this formula
-            else:
-                magic = 1 # TODO: tweak this value
-            roterr = float(angle) / magic
-        else:
-            roterr = 0
-        return dsterr + roterr
+        magic = 1 + self.pdev + loc.pdev # TODO: tweak this formula
+        return float(dst)/magic
 
 
 # class object, used for objects on the map ---------------------------------- #
@@ -229,7 +214,7 @@ class Obj(object):
     def update(self, obj):
         weight_prob = 0.5 # TODO: do stuff with the prob parameter
         weight_views = float(self.views) / (self.views+obj.views)
-        weight_pdev = 1 - float(self.pos.pdev+1) / (self.pos.pdev+obj.pos.pdev+2)
+        weight_pdev = 1 - float(self.pos.pdev) / (self.pos.pdev+obj.pos.pdev)
         weight_total = 0.0*weight_prob + 0.7*weight_views + 0.3*weight_pdev # TODO: tweak these values
         if VERBOSE >= 3:
             print("w1: {:5.3f}, w2: {:5.3f}, w3: {:5.3f}, wt: {:5.3f}".format(weight_prob, weight_views, weight_pdev, weight_total))
@@ -420,9 +405,7 @@ class Map(object):
     # returns best rotational fit for map B on map A. Arguments: self = map A;
     # mapb = map B, (vec.x, vec.y) = location shift, vec.rot = rotation
     # starting point, vec.rdev = maximum rotation deviation
-    def getRotFit(self, mapb, vec=None):
-        if vec == None:
-            vec = Loc(0.0, 0.0, inf, 0.0, 2*pi)
+    def getRotFit(self, mapb, vec=Loc(0.0, 0.0, None, 0.0, 2*pi)):
         copy = mapb.getShiftedCopy(vec)
         rdif = []
         for obj in copy.objs:
@@ -436,15 +419,14 @@ class Map(object):
                 if abs(drot) < vec.rdev:
                     rdif.append(drot)
         if len(rdif):
-            vec.rot += median(rdif)
-        return vec
+            return vec.rot + median(rdif)
+        else:
+            return vec.rot
 
     # returns best location shift fit for map B on map A. Arguments: self = map
     # A; # mapb = map B, (vec.x, vec.y) = location shift starting point,
     # vec.pdev = maximum shift deviation, vec.rot = rotation shift
-    def getPosFit(self, mapb, vec=None):
-        if vec == None:
-            vec = Loc(0.0, 0.0, inf, 0.0, 2*pi)
+    def getPosFit(self, mapb, vec=Loc(0.0, 0.0, inf, 0.0, None)):
         copy = mapb.getShiftedCopy(vec)
         weight = 0.0
         sumx = sumy = 0.0
@@ -461,37 +443,20 @@ class Map(object):
                 weight += 1/magic
         if weight == 0:
             return vec
-        dx = sumx/weight
-        dy = sumy/weight
-        if vec.pdev:
-            dx = min(dx, vec.pdev)
-            dx = max(dx, -vec.pdev)
-            dy = min(dy, +vec.pdev)
-            dy = max(dy, -vec.pdev)
-        vec.x += dx
-        vec.y += dy
-        return vec
+        dx = vec.x+sumx/weight
+        dy = vec.y+sumy/weight
+        dx = min(dx, vec.x+vec.pdev)
+        dx = max(dx, vec.x-vec.pdev)
+        dy = min(dy, vec.y+vec.pdev)
+        dy = max(dy, vec.y-vec.pdev)
+        return Loc(dx, dy)
 
     # returns best rotation + location shift fit for map B on map A. Arguments:
     # self = map A; # mapb = map B, (vec.x, vec.y) = location shift starting
     # point, vec.pdev = maximum shift deviation, vec.rot = rotation starting
     # point, vec.rdev = maximum rotation deviation
     def getRotPosFit(self, mapb, vec):
-        veca = deepcopy(vec)
-        if VERBOSE >= 3:
-            print("getRotPosFit: {}".format(vec))
-        delta = inf
-        err = inf
-        while (delta >= 10): # TODO: tweak this value
-            vecb = self.getRotFit(mapb, veca)
-            vecc = self.getPosFit(mapb, vecb)
-            errp = vec.matchError(vecc)
-            delta = abs(err - errp)
-            veca = vecc
-            err = errp
-            if VERBOSE >= 3:
-                print("err: {:5.2f}\tdelta: {:5.2f}\tvec:{}".format(err, delta, vec))
-        return vec
+        print("TODO") # TODO: implement
 
     # find the four corner bottles, calculate reshaping of map using fact that
     # map should be rectangular, adjust objects on map using weight w
@@ -607,158 +572,130 @@ if DEBUG:
     print("Robot placed at position ({}, {}) with rotation {:5.3f}\n".format(robotx, roboty, robotrot))
 
 
-# class Vision, used for communication with vision part ---------------------- #
-class Vision:
-    # class variables
-    # vision
-
-    # constructor
-    def __init__(self):
-        if not DEBUG:
-            self.vision = Object_detector(1)
-
-    # getSurroundings
-    def getSurroundings(self):
+# vision thread placeholder -------------------------------------------------- #
+def getSurroundings():
+    if DEBUG:
         if VERBOSE >= 3:
             print("getSurroundings()")
-        if DEBUG:
-            objects_list = []
-            for obj in debugmap.objs:
-                dist = obj.getDist(robot)
-                angle = (obj.getAngle(robot) + pi) % (2*pi) - pi
-                if angle > (-pi/3) and angle < (pi/3) and not isinstance(obj, Box):
-                    if VERBOSE >= 3:
-                        print("\tObject: {}".format(obj))
-                        print("\tObject in sight? Dist: {:5.1f}, angle: {:5.2f}.".format(dist, angle))
-                    rnd = random.rand()
-                    if not ADVANCED or 250.0/dist >= rnd:
-                        if ADVANCED:
-                            prob = 0.8
-                            magic = 50.0/(dist+25)
-                            angle += (magic*random.rand() - magic/2)
-                            magic = float(dist)/2000+0.1
-                            dist = (1 + magic*random.rand() - magic/2) * dist
-                            pdev = magic*dist/2+10
-                        else:
-                            prob = 1.0
-                            pdev = 0.0
-                        if VERBOSE >= 3:
-                            print("\t\tYes, observed at dist {:5.1f} and angle {:5.2f} ({:4.2} > {:4.2})".format(dist, angle, float(250)/dist, rnd))
-                        posx = dist * sin(angle)
-                        posy = dist * cos(angle)
-                        if isinstance(obj, Bottle):
-                            objects_list.append({'name': 'bottle', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev, 'color': obj.color})
-                        elif isinstance(obj, Cone):
-                            objects_list.append({'name': 'cone', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev})
+        objects_list = []
+        for obj in debugmap.objs:
+            dist = obj.getDist(robot)
+            angle = (obj.getAngle(robot) + pi) % (2*pi) - pi
+            if angle > (-pi/3) and angle < (pi/3) and not isinstance(obj, Box):
+                if VERBOSE >= 3:
+                    print("\tObject: {}".format(obj))
+                    print("\tObject in sight? Dist: {:5.1f}, angle: {:5.2f}.".format(dist, angle))
+                rnd = random.rand()
+                if not ADVANCED or 250.0/dist >= rnd:
+                    if ADVANCED:
+                        prob = 0.8
+                        magic = 50.0/(dist+25)
+                        angle += (magic*random.rand() - magic/2)
+                        magic = float(dist)/2000+0.1
+                        dist = (1 + magic*random.rand() - magic/2) * dist
+                        pdev = magic*dist/2+10
                     else:
-                        if VERBOSE >= 3:
-                            print("\t\tNope, too cloudy ({:4.2} < {:4.2})".format(float(250)/dist, rnd))
-            if VERBOSE >= 3:
-                print("")
-            return objects_list
-        else:
-            return self.vision.objects_process();
-
-
-# class Arduino, used to link control commands to the Arduino communication -- #
-class Arduino:
-    # class variables
-    # port
-
-    # constructor
-    def __init__(self):
-        if not DEBUG:
-            self.port = serial.Serial('/dev/ttyUSB0', 9600)
-
-    # write command
-    def writeM(self, m):
-        self.port.write(m)
-
-    # wait for the OK message
-    def readOk(self):
-        while True:
-            m = self.port.readLine()
-            if "OK" in m:
-                break
-
-    # read vector message
-    def readVec(self):
-        m = port.readLine()
-        m = m.split("(")[1]
-        m = m.split(")")[0]
-        v = m.split(" , ")
-        return Loc(v[0], v[1], v[2], v[3], v[4])
-
-    # grab(n)
-    def boxGrab(self, n):
-        if DEBUG:
-            print("TODO: implement grab(n)") # TODO: implement
-            return None
-        else:
-            print("TODO: implement grab(n)") # TODO: implement
-            return None
-
-    # deliver(n)
-    def boxDrop(self, n):
-        if DEBUG:
-            print("TODO: implement deliver(n)") # TODO: implement
-            return None
-        else:
-            print("TODO: implement deliver(n)") # TODO: implement
-            return None
-
-    # XYmove(x, y) and XYpose(x, y, a)
-    def move(self, vec):
-        if DEBUG:
-            if VERBOSE >= 3:
-                print("move({})".format(dist))
-            if not vec.rot:
-                vec.rot = vec.getAngle() # TODO: replace this formula with correct formula
-            if ADVANCED:
-                vecp = Loc(-20 + 40*random.rand(), -20 + 40*random.rand(), None, (-0.01 + 0.02*random.rand()) * pi)
-                if VERBOSE >= 3:
-                    print("Actual move: {}".format(vecp))
-                debugmap.shiftMap(vecp.inverse())
-            else:
-                debugmap.shiftMap(vec.inverse())
-            return vec
-        else:
-            if vec.rot:
-                m = "XYpos(" + str(vec.x) + ", " + str(vec.y) + ", " + str(vec.rot) + ")"
-            else:
-                m = "XYmove(" + str(vec.x) + ", " + str(vec.y) + ")"
-            self.writeM(m)
-            return self.readVec()
-
-    # rotate(a)
-    def rotate(self, angle):
+                        prob = 1.0
+                        pdev = 0.0
+                    if VERBOSE >= 3:
+                        print("\t\tYes, observed at dist {:5.1f} and angle {:5.2f} ({:4.2} > {:4.2})".format(dist, angle, float(250)/dist, rnd))
+                    posx = dist * sin(angle)
+                    posy = dist * cos(angle)
+                    if isinstance(obj, Bottle):
+                        objects_list.append({'name': 'bottle', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev, 'color': obj.color})
+                    elif isinstance(obj, Cone):
+                        objects_list.append({'name': 'cone', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev})
+                else:
+                    if VERBOSE >= 3:
+                        print("\t\tNope, too cloudy ({:4.2} < {:4.2})".format(float(250)/dist, rnd))
         if VERBOSE >= 3:
-            print('Rotate by {:5.3f} radians\n'.format(angle))
-        if DEBUG:
-            global debugmap
-            vec = Loc(0.0, 0.0, None, angle)
-            if ADVANCED:
-                vec.rot += (-0.1 + 0.2*random.rand()) * pi
-                if VERBOSE >= 3:
-                    print("Actual rotation: {:5.3} radians".format(vec.rot))
-            debugmap.shiftMap(vec.inverse())
-            if ADVANCED:
-                vec.rot += (-0.05 + 0.1*random.rand()) * pi
-                if VERBOSE >= 3:
-                    print("Returned rotation: {:5.3} radians".format(vec.rot))
-            return vec
-        else:
-            self.writeM("rotate(" + str(angle/2) + ")")
-            return self.readVec()
+            print("")
+        return objects_list
+    else:
+        print("TODO: link visual thread") # TODO: implement
+        return None
 
-    # backoff(y)
-    def backoff(self, dist):
-        if DEBUG:
-            print("TODO: implement backoff(dist)") # TODO: implement
-            return None
-        else:
-            print("TODO: implement backoff(dist)") # TODO: implement
-            return None
+
+# Arduino placeholder: servo control ----------------------------------------- #
+def boxGrab(n):
+    if DEBUG:
+        print ("grab({})".format(n)) # TODO: test
+        return None
+    else:
+        print ("grab({})".format(n)) # TODO: test
+        return None
+
+
+# Arduino placeholder: servo control ----------------------------------------- #
+def boxDrop(n):
+    if DEBUG:
+        print ("deliver({})".format(n)) # TODO: test
+        return None
+    else:
+        print ("deliver({})".format(n)) # TODO: test
+        return None
+
+
+# Arduino placeholder: motion control ---------------------------------------- #
+def move(vec):
+    if DEBUG:
+        if VERBOSE >= 3:
+            print("move({})".format(dist))
+        if not vec.rot:
+            vec.rot = vec.getAngle() # TODO: replace this formula with correct formula
+        if ADVANCED:
+            vec.x *= 0.8 + 0.4*random.rand()
+            vec.y *= 0.8 + 0.4*random.rand()
+            vec.rot += (-0.1 + 0.2*random.rand()) * pi
+            if VERBOSE >= 3:
+                print("Actual move: {}".format(vec))
+        debugmap.shiftMap(vec.inverse())
+        if ADVANCED:
+            vec.x *= 0.9 + 0.2*random.rand()
+            vec.y *= 0.9 + 0.2*random.rand()
+            vec.rot += (-0.05 + 0.1*random.rand()) * pi
+            if VERBOSE >= 3:
+                print("Returned move: {}".format(vec))
+        return vec
+    else:
+		if not vec.rot:
+			print ("XYmove({},{})".format(vec.x,vec.y))
+		else:
+			print ("XYpose({},{},{})".format(vec.x,vec.y,vec.rot)) # TODO: test
+        return None
+
+
+# Arduino placeholder: motion control ---------------------------------------- #
+def rotate(angle):
+    if VERBOSE >= 3:
+        print('Rotate by {:5.3f} radians\n'.format(angle))
+    if DEBUG:
+        global debugmap
+        vec = Loc(0.0, 0.0, None, angle)
+        if ADVANCED:
+            vec.rot += (-0.1 + 0.2*random.rand()) * pi
+            if VERBOSE >= 3:
+                print("Actual rotation: {:5.3} radians".format(vec.rot))
+        debugmap.shiftMap(vec.inverse())
+        if ADVANCED:
+            vec.rot += (-0.05 + 0.1*random.rand()) * pi
+            if VERBOSE >= 3:
+                print("Returned rotation: {:5.3} radians".format(vec.rot))
+        return vec
+    else:
+        print("rotate({})".format(angle)) # TODO: test
+        return None
+
+
+# Arduino placeholder: motion control ---------------------------------------- #
+def backoff(dist):
+    if DEBUG:
+        print("backoff({})".format(dist)) # TODO: test	
+        return None
+    else:
+        print("backoff({})".format(dist)) # TODO: test
+        return None
+
 
 
 
@@ -794,8 +731,6 @@ def parse(item):
         print("Parsing error")
 
 
-# call getsurroundings, parse output, create view map, return observation
-
 
 '''//------------------------------------------------------------------------//'
 ''// main code, part I: creating initial map -------------------------------//''
@@ -804,17 +739,11 @@ print("+------------------------------------------------------------------------
 print("| STAGE I STARTING                                                             |")
 print("+------------------------------------------------------------------------------+\n")
 
-# initialize vision communication
-sauron = Vision()
-
-# initialize Arduino communication
-ardy = Arduino()
-
 # create empty initial map
 imap = Map()
 
 # get environment
-environment = sauron.getSurroundings()
+environment = getSurroundings()
 imap.addMark()
 
 # place objects on map
@@ -832,18 +761,19 @@ step = 2 * pi / steps
 rot = 0
 while (rot < 2*pi - step/2):
     # rotate by step degrees, adjust for stepp
-    rvec = ardy.rotate(step)
+    rvec = rotate(step)
 
     # get environment
     view = Map()
-    for i in sauron.getSurroundings():
+    for i in getSurroundings():
         view.add(parse(i))
+
     if VERBOSE >= 3:
         print("View at rotation {:5.3f}".format(rvec.rot))
         view.debugPrint()
 
     # adjust assumed rotation step to step'
-    stepp = imap.getRotFit(view, Loc(0.0, 0.0, None, rvec.rot, float(step)/2)).rot
+    stepp = imap.getRotFit(view, Loc(0.0, 0.0, None, rvec.rot, float(step)/2))
     rot += stepp
     if VERBOSE >= 3:
         print("Observed rotation: {:5.3f}".format(stepp))
@@ -927,43 +857,18 @@ while not done:
         print("Destination: {}".format(cone))
 
     # drive to nearest relevant cone
-    dist = cone.getDist()
-    if cone.pos.y < 20 or dist < 50: # TODO: tweak this values
-        angle = cone.getAngle()
-        print("ROTATE: {}".format(angle))
-        vec = ardy.rotate(angle)
-        print("ROTATE: {}".format(vec))
-        view = Map()
-        for i in sauron.getSurroundings():
-            view.add(parse(i))
-        vec.rdev = pi/6 # TODO: tweak this value
-        vecp = imap.getRotFit(view, vec)
-        print(vecp)
-        wvec = vec.wavg(vecp, 0.8) # TODO: tweak this value
-        print(wvec)
-        imap.shiftMap(wvec.inverse())
-        imap.addMark()
-        imap.debugPrint()
-    dist = cone.getDist()
-    if dist > 50: # TODO: tweak this value
-        dist -= 40 # TODO: tweak this value
+    angle = cone.getAngle()
+    if abs(angle) >= pi/2:
+        rotate(angle)
+        imap.shiftMap(Loc(0.0, 0.0, None, -angle))
+    dist = cone.getDist() - 40 # TODO: tweak this value
+    if dist > 0:
         angle = cone.getAngle()
         vec = Loc(dist*sin(angle), dist*cos(angle))
-        print("ROLL: {}".format(vec))
-        vec = ardy.move(vec)
-        print("ROLL: {}".format(vec))
-        view = Map()
-        for i in sauron.getSurroundings():
-            view.add(parse(i))
-        vec.pdev = 100 # TODO: tweak this value
-        vec.rdev = pi/6 # TODO: tweak this value
-        vecp = imap.getRotPosFit(view, vec)
-        print(vecp)
-        wvec = vec.wavg(vecp, 0.8) # TODO: tweak this value
-        print(wvec)
-        imap.shiftMap(wvec.inverse())
-        imap.addMark()
-        imap.debugPrint()
+        vec = move(vec)
+        imap.shiftMap(vec.inverse())
+    rvec = cone.pos.getDist(imap.getLastMark())
+    # adjust postion on map
 
     # if at unidentified cone:
         # identify cone
@@ -981,10 +886,10 @@ while not done:
     # if list of unvisited cones is empty and list of undelivered boxes is empty
         # done = True
 
-    if VERBOSE >= 2:
+    if VERBOSE >= -2:
         print("Updated map")
         imap.debugPrint()
-    exit()
+    sleep(1)
 
 
 
