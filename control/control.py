@@ -50,7 +50,7 @@ Assumed functions in Arduino:
 
 # debug settings ------------------------------------------------------------- #
 VERBOSE = 1     # debug print level: 0 = off, 1 = basic, 2 = medium, 3 = all
-DEBUG = True    # enable/disable test environment
+DEBUG = False    # enable/disable test environment
 ADVANCED = True # test environment produces incorrect input/output
 XSCALE = 16     # a terminal character width represents XSCALE centimeters
 YSCALE = 34     # a terminal character height represents YSCALE centimeters
@@ -677,13 +677,13 @@ class Arduino:
     # wait for the OK message
     def readOk(self):
         while True:
-            m = self.port.readLine()
+            m = self.port.readline()
             if "OK" in m:
                 break
 
     # read vector message
     def readVec(self):
-        m = port.readLine()
+        m = self.port.readline()
         m = m.split("(")[1]
         m = m.split(")")[0]
         v = m.split(" , ")
@@ -751,6 +751,17 @@ class Arduino:
             self.writeM("rotate(" + str(angle/2) + ")")
             return self.readVec()
 
+    # slamrot()
+    def slamrot(self):
+        if VERBOSE >= 3:
+            print('Slamrot')
+        if DEBUG:
+            print("TODO: implement slamrot") # TODO: implement
+            return None
+        else:
+            self.writeM("slamrot")
+            return self.readVec()
+
     # backoff(y)
     def backoff(self, dist):
         if DEBUG:
@@ -794,7 +805,25 @@ def parse(item):
         print("Parsing error")
 
 
-# call getsurroundings, parse output, create view map, return observation
+# call getsurroundings, parse output, create view map, match observation, return vec
+# ivec = expected movement, w = weight of expected movement, sett = alignment setting
+def alignMap(vec, w, sett):
+    if DEBUG >= 3:
+        print("Expected movement: {}".format(vec))
+    view = Map()
+    for i in sauron.getSurroundings():
+        view.add(parse(i))
+    if VERBOSE >= 3:
+        view.debugPrint()
+    if sett == 'rot':
+        vecp = imap.getRotFit(view, v)
+    elif sett == 'pos':
+        vecp = imap.getPosFit(view, v)
+    elif sett == 'rotpos':
+        vecp = imap.getRotPosFit(view, v)
+    if DEBUG >= 3:
+        print("Observed movement: {}".format(vecp))
+    return vec.wavg(vecp, w)
 
 
 '''//------------------------------------------------------------------------//'
@@ -831,25 +860,15 @@ steps = 12
 step = 2 * pi / steps
 rot = 0
 while (rot < 2*pi - step/2):
-    # rotate by step degrees, adjust for stepp
-    rvec = ardy.rotate(step)
+    # rotate by step degrees
+    rvec = ardy.slamrot()
 
-    # get environment
-    view = Map()
-    for i in sauron.getSurroundings():
-        view.add(parse(i))
-    if VERBOSE >= 3:
-        print("View at rotation {:5.3f}".format(rvec.rot))
-        view.debugPrint()
-
-    # adjust assumed rotation step to step'
-    stepp = imap.getRotFit(view, Loc(0.0, 0.0, None, rvec.rot, float(step)/2)).rot
-    rot += stepp
-    if VERBOSE >= 3:
-        print("Observed rotation: {:5.3f}".format(stepp))
+    # adjust assumed rotation step to step'    
+    vec = alignMap(rvec, 0.8, 'rot')
+    rot += vec.rot
     
     # remap position of observed objects to coordinate system of map
-    imap.shiftMap(Loc(0.0, 0.0, None, -stepp))
+    imap.shiftMap(vec.inverse())
     imap.addMark()
 
     # update map
