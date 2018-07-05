@@ -3,7 +3,7 @@ from numpy import inf, random
 from math import sqrt, sin, cos, atan, pi
 from copy import deepcopy
 from statistics import median
-from vision import *
+#from vision import *
 import serial
 
 '''
@@ -50,7 +50,7 @@ Assumed functions in Arduino:
 
 # debug settings ------------------------------------------------------------- #
 VERBOSE = 1     # debug print level: 0 = off, 1 = basic, 2 = medium, 3 = all
-DEBUG = False    # enable/disable test environment
+DEBUG = True    # enable/disable test environment
 ADVANCED = True # test environment produces incorrect input/output
 XSCALE = 16     # a terminal character width represents XSCALE centimeters
 YSCALE = 34     # a terminal character height represents YSCALE centimeters
@@ -615,7 +615,7 @@ class Vision:
     # constructor
     def __init__(self):
         if not DEBUG:
-            self.vision = Object_detector(1)
+            self.vision = Object_detector(0)
 
     # getSurroundings
     def getSurroundings(self):
@@ -659,6 +659,14 @@ class Vision:
         else:
             return self.vision.objects_process();
 
+    def getView(self):
+        if DEBUG >= 3:
+            print("getView()")
+        view = Map()
+        for i in self.getSurroundings():
+            view.add(parse(i))
+        return view
+
 
 # class Arduino, used to link control commands to the Arduino communication -- #
 class Arduino:
@@ -669,6 +677,7 @@ class Arduino:
     def __init__(self):
         if not DEBUG:
             self.port = serial.Serial('/dev/ttyUSB0', 9600)
+            sleep(2)
 
     # write command
     def writeM(self, m):
@@ -756,8 +765,14 @@ class Arduino:
         if VERBOSE >= 3:
             print('Slamrot')
         if DEBUG:
-            print("TODO: implement slamrot") # TODO: implement
-            return None
+            global debugmap
+            vec = Loc(0.0, 0.0, None, pi/6)
+            if ADVANCED:
+                vec.rot *= (.95 + 0.1*random.rand())
+                if VERBOSE >= 3:
+                    print("Actual rotation: {:5.3} radians".format(vec.rot))
+            debugmap.shiftMap(vec.inverse())
+            return vec
         else:
             self.writeM("slamrot")
             return self.readVec()
@@ -805,27 +820,6 @@ def parse(item):
         print("Parsing error")
 
 
-# call getsurroundings, parse output, create view map, match observation, return vec
-# ivec = expected movement, w = weight of expected movement, sett = alignment setting
-def alignMap(vec, w, sett):
-    if DEBUG >= 3:
-        print("Expected movement: {}".format(vec))
-    view = Map()
-    for i in sauron.getSurroundings():
-        view.add(parse(i))
-    if VERBOSE >= 3:
-        view.debugPrint()
-    if sett == 'rot':
-        vecp = imap.getRotFit(view, v)
-    elif sett == 'pos':
-        vecp = imap.getPosFit(view, v)
-    elif sett == 'rotpos':
-        vecp = imap.getRotPosFit(view, v)
-    if DEBUG >= 3:
-        print("Observed movement: {}".format(vecp))
-    return vec.wavg(vecp, w)
-
-
 '''//------------------------------------------------------------------------//'
 ''// main code, part I: creating initial map -------------------------------//''
 '//------------------------------------------------------------------------//'''
@@ -863,8 +857,12 @@ while (rot < 2*pi - step/2):
     # rotate by step degrees
     rvec = ardy.slamrot()
 
-    # adjust assumed rotation step to step'    
-    vec = alignMap(rvec, 0.8, 'rot')
+    # get view
+    view = sauron.getView()
+
+    # adjust assumed rotation step
+    pvec = imap.getRotFit(view, Loc(0.0, 0.0, None, pi/6))
+    vec = rvec.wavg(pvec, 0.8)
     rot += vec.rot
     
     # remap position of observed objects to coordinate system of map
@@ -926,12 +924,11 @@ print("")
 print("+------------------------------------------------------------------------------+")
 print("| STAGE II STARTING                                                            |")
 print("+------------------------------------------------------------------------------+\n")
-print("TODO: stage II\n")
 
 # repeat grabbing and dropping of boxes until done
 done = False
 while not done:
-    if VERBOSE >= -2:
+    if VERBOSE >= 2:
         print("Let's drive!")
 
     # make list of unvisited cones and box destination cone
@@ -942,47 +939,37 @@ while not done:
     # select nearest cone
     dists = [cone.getDist() for cone in cones]
     cone = cones[dists.index(min(dists))]
-    if VERBOSE >= -2:
+    if VERBOSE >= 2:
         print("Destination: {}".format(cone))
 
     # drive to nearest relevant cone
     dist = cone.getDist()
-    if cone.pos.y < 20 or dist < 50: # TODO: tweak this values
+    if cone.pos.y < 20 or dist < 50: # TODO: tweak these values
+        if VERBOSE >= 2:
+            print("ROTATE")
         angle = cone.getAngle()
-        print("ROTATE: {}".format(angle))
-        vec = ardy.rotate(angle)
-        print("ROTATE: {}".format(vec))
-        view = Map()
-        for i in sauron.getSurroundings():
-            view.add(parse(i))
-        vec.rdev = pi/6 # TODO: tweak this value
-        vecp = imap.getRotFit(view, vec)
-        print(vecp)
-        wvec = vec.wavg(vecp, 0.8) # TODO: tweak this value
-        print(wvec)
-        imap.shiftMap(wvec.inverse())
+        vecr = ardy.rotate(angle)
+        view = sauron.getView()
+        vecp = imap.getRotFit(view, vecr)
+        vec = vecr.wavg(vecp, 0.8) # TODO: tweak this value
+        imap.shiftMap(vec.inverse())
         imap.addMark()
-        imap.debugPrint()
+        if VERBOSE >= 3:
+            imap.debugPrint()
     dist = cone.getDist()
     if dist > 50: # TODO: tweak this value
+        if VERBOSE >= 2:
+            print("ROLL")
         dist -= 40 # TODO: tweak this value
         angle = cone.getAngle()
-        vec = Loc(dist*sin(angle), dist*cos(angle))
-        print("ROLL: {}".format(vec))
-        vec = ardy.move(vec)
-        print("ROLL: {}".format(vec))
-        view = Map()
-        for i in sauron.getSurroundings():
-            view.add(parse(i))
-        vec.pdev = 100 # TODO: tweak this value
-        vec.rdev = pi/6 # TODO: tweak this value
-        vecp = imap.getRotPosFit(view, vec)
-        print(vecp)
-        wvec = vec.wavg(vecp, 0.8) # TODO: tweak this value
-        print(wvec)
-        imap.shiftMap(wvec.inverse())
+        vecm = ardy.move(Loc(dist*sin(angle), dist*cos(angle)))
+        view = sauron.getView()
+        vecp = imap.getRotPosFit(view, vecm)
+        vec = vecm.wavg(vecp, 0.8) # TODO: tweak this value
+        imap.shiftMap(vec.inverse())
         imap.addMark()
-        imap.debugPrint()
+        if VERBOSE >= 3:
+            imap.debugPrint()
 
     # if at unidentified cone:
         # identify cone
@@ -1000,7 +987,7 @@ while not done:
     # if list of unvisited cones is empty and list of undelivered boxes is empty
         # done = True
 
-    if VERBOSE >= 2:
+    if VERBOSE >= -2:
         print("Updated map")
         imap.debugPrint()
     exit()
