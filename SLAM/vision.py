@@ -13,6 +13,7 @@ from pyzbar import pyzbar
 import math
 import pickle
 import face_recognition
+from math import cos,sin
 
 def intersect(l1, l2):
 	delta = np.array([l1[1] - l1[0], l2[1] - l2[0]]).astype(np.float32)
@@ -154,6 +155,7 @@ class Object_detector:
 		self.__xScale = 0.001 # 0.004
 		self.__FishEye_Compenstae_ON = 0
 		self.__xCenter = (2560/2)#(640/2)
+		self.__AngleConst = 0.0008 #
 		
 		file = open('Left_Stereo_Map_file.txt', 'r')
 		self.__Left_Stereo_Map = pickle.load(file)
@@ -264,7 +266,7 @@ class Object_detector:
 		#blurred = cv2.GaussianBlur(frame, (11, 11), 0)
 		hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 		
-		for i in range(4,5):
+		for i in range(0,5):
 				mask = cv2.inRange(hsv, self.__color_codes_lower[i], self.__color_codes_upper[i])
 				#mask = cv2.erode(mask, None, iterations=1)
 				#mask = cv2.dilate(mask, None, iterations=1)
@@ -311,7 +313,8 @@ class Object_detector:
 								self.__focalLength = 1211.0;
 								return objects_list_low_resolution
 							depth = (26.0 * self.__focalLength) / h
-							object_properties['position'] = (self.__xScale * depth *(cX - self.__xCenter ), depth)
+							angle = self.__AngleConst *(cX - self.__xCenter )
+							object_properties['position'] = (depth * sin(angle), depth * cos(angle))
 							objects_list.append(object_properties.copy())
 							# focal length calibration 
 							#KNOWN_DISTANCE = 60.0
@@ -328,8 +331,6 @@ class Object_detector:
 							cnts = sorted(cnts, key=cv2.contourArea)
 							kk = 0
 							for jj in range(0, min(len(cnts) , self.__NumberofCones)):
-								print 'lelen'
-								print len(cnts)
 								kk = kk - 1
 								c = cnts[kk]
 								if (cv2.contourArea(c) > (0.1 * Max_area)):
@@ -366,7 +367,10 @@ class Object_detector:
 											self.__focalLength = 1211.0;
 											return objects_list_low_resolution
 										depth = (17.5 * self.__focalLength) / h
-										object_properties['position'] = (self.__xScale * depth *(cX - self.__xCenter ), depth)
+										angle = self.__AngleConst *(cX - self.__xCenter )
+										object_properties['position'] = (depth * sin(angle), depth * cos(angle))
+										print 'angle_const'
+										print ((3.1415/4)/(float)(cX - self.__xCenter ))
 										
 										# x calibration 
 										KNOWN_DISTANCE = 100.0
@@ -409,7 +413,8 @@ class Object_detector:
 											self.__focalLength = 1211.0;
 											return objects_list_low_resolution
 										depth = (26.0 * self.__focalLength) / h
-										object_properties['position'] = (self.__xScale * depth *(cX - self.__xCenter ), depth)
+										angle = self.__AngleConst *(cX - self.__xCenter )
+										object_properties['position'] = (depth * sin(angle), depth * cos(angle))
 								
 							
 									
@@ -423,6 +428,9 @@ class Object_detector:
 
 	def qr_process(self):
 
+##		gp.output(7, True)
+##		gp.output(11, False)
+##		gp.output(12, True)
 		self.__camera.resolution = (640, 480)
 		self.__FishEye_Compenstae_ON = 1
 		self.__camera.capture(self.__rawCapture, format="bgr")
