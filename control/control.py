@@ -49,7 +49,7 @@ Assumed functions in Arduino:
 '''
 
 # debug settings ------------------------------------------------------------- #
-VERBOSE = 1     # debug print level: 0 = off, 1 = basic, 2 = medium, 3 = all
+VERBOSE = 3     # debug print level: 0 = off, 1 = basic, 2 = medium, 3 = all
 DEBUG = True    # enable/disable test environment
 ADVANCED = True # test environment produces incorrect input/output
 XSCALE = 16     # a terminal character width represents XSCALE centimeters
@@ -696,7 +696,18 @@ class Arduino:
         m = m.split("(")[1]
         m = m.split(")")[0]
         v = m.split(" , ")
-        return Loc(v[0], v[1], v[2], v[3], v[4])
+        return Loc(float(v[0]), float(v[1]), float(v[2]), float(v[3]), float(v[4]))
+
+    # measure power
+    def readPower(self):
+        if DEBUG:
+            print("TODO: implement measure") # TODO: implement
+            return None
+        else:
+            print("Power stats:")
+            self.writeM("measure")
+            for i in range(0,8):
+                print("\t{}".format(self.port.readline().split("\n")[0]))
 
     # grab(n)
     def boxGrab(self, n):
@@ -840,6 +851,8 @@ imap = Map()
 environment = sauron.getSurroundings()
 imap.addMark()
 
+ardy.readPower() # TMP FOR PRESENTATION: PRINT POWER STATS
+
 # place objects on map
 for i in environment:
     imap.add(parse(i))
@@ -868,6 +881,8 @@ while (rot < 2*pi - step/2):
     # remap position of observed objects to coordinate system of map
     imap.shiftMap(vec.inverse())
     imap.addMark()
+
+    ardy.readPower() # TMP FOR PRESENTATION: PRINT POWER STATS
 
     # update map
     imap.update(view)
@@ -986,6 +1001,8 @@ while not done:
 
     # if list of unvisited cones is empty and list of undelivered boxes is empty
         # done = True
+
+    ardy.readPower() # TMP FOR PRESENTATION: PRINT POWER STATS
 
     if VERBOSE >= -2:
         print("Updated map")
