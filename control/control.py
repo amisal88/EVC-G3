@@ -49,7 +49,7 @@ Assumed functions in Arduino:
 '''
 
 # debug settings ------------------------------------------------------------- #
-VERBOSE = 3     # debug print level: 0 = off, 1 = basic, 2 = medium, 3 = all
+VERBOSE = 1     # debug print level: 0 = off, 1 = basic, 2 = medium, 3 = all
 DEBUG = True    # enable/disable test environment
 ADVANCED = True # test environment produces incorrect input/output
 XSCALE = 16     # a terminal character width represents XSCALE centimeters
@@ -629,21 +629,20 @@ class Vision:
                 if angle > (-pi/3) and angle < (pi/3) and not isinstance(obj, Box):
                     if VERBOSE >= 3:
                         print("\tObject: {}".format(obj))
-                        print("\tObject in sight? Dist: {:5.1f}, angle: {:5.2f}.".format(dist, angle))
-                    rnd = random.rand()
-                    if not ADVANCED or 250.0/dist >= rnd:
+                        print("\tObject in sight? Dist: {:5.1f}, angle: {:5.2f}, prob: {:4.2f}.".format(dist, angle, 400.0/(dist+400)))
+                    if not ADVANCED or 400.0/(dist+400) >= random.rand():
                         if ADVANCED:
                             prob = 0.8
+                            magic = 0.8 - 480.0/(dist+600)
+                            dist += (magic*random.rand() - magic/2) * dist
+                            pdev = magic*dist/2+10
                             magic = 50.0/(dist+25)
                             angle += (magic*random.rand() - magic/2)
-                            magic = float(dist)/2000+0.1
-                            dist = (1 + magic*random.rand() - magic/2) * dist
-                            pdev = magic*dist/2+10
                         else:
                             prob = 1.0
                             pdev = 0.0
                         if VERBOSE >= 3:
-                            print("\t\tYes, observed at dist {:5.1f} and angle {:5.2f} ({:4.2} > {:4.2})".format(dist, angle, float(250)/dist, rnd))
+                            print("\t\tYes, observed at dist {:5.1f} and angle {:5.2f}".format(dist, angle))
                         posx = dist * sin(angle)
                         posy = dist * cos(angle)
                         if isinstance(obj, Bottle):
@@ -652,7 +651,7 @@ class Vision:
                             objects_list.append({'name': 'cone', 'probability': prob, 'position': (posx,posy), 'stdev_p': pdev})
                     else:
                         if VERBOSE >= 3:
-                            print("\t\tNope, too cloudy ({:4.2} < {:4.2})".format(float(250)/dist, rnd))
+                            print("\t\tNope, too cloudy")
             if VERBOSE >= 3:
                 print("")
             return objects_list
@@ -735,12 +734,18 @@ class Arduino:
             if not vec.rot:
                 vec.rot = vec.getAngle() # TODO: replace this formula with correct formula
             if ADVANCED:
-                vecp = Loc(-20 + 40*random.rand(), -20 + 40*random.rand(), None, (-0.01 + 0.02*random.rand()) * pi)
+                vec.x += 40*random.rand() - 20
+                vec.y += 40*random.rand() - 20
+                vec.rot += pi/4.5*random.rand() - pi/9
                 if VERBOSE >= 3:
                     print("Actual move: {}".format(vecp))
-                debugmap.shiftMap(vecp.inverse())
-            else:
-                debugmap.shiftMap(vec.inverse())
+            debugmap.shiftMap(vec.inverse())
+            if ADVANCED:
+                vec.x += 20*random.rand() - 10
+                vec.y += 20*random.rand() - 10
+                vec.rot += pi/9*random.rand() - pi/18
+                if VERBOSE >= 3:
+                    print("Returned move: {}".format(vecp))
             return vec
         else:
             if vec.rot:
@@ -758,12 +763,12 @@ class Arduino:
             global debugmap
             vec = Loc(0.0, 0.0, None, angle)
             if ADVANCED:
-                vec.rot += (-0.1 + 0.2*random.rand()) * pi
+                vec.rot += (pi/4.5*random.rand() - pi/9)
                 if VERBOSE >= 3:
                     print("Actual rotation: {:5.3} radians".format(vec.rot))
             debugmap.shiftMap(vec.inverse())
             if ADVANCED:
-                vec.rot += (-0.05 + 0.1*random.rand()) * pi
+                vec.rot += (pi/9*random.rand() - pi/18)
                 if VERBOSE >= 3:
                     print("Returned rotation: {:5.3} radians".format(vec.rot))
             return vec
@@ -779,10 +784,11 @@ class Arduino:
             global debugmap
             vec = Loc(0.0, 0.0, None, pi/6)
             if ADVANCED:
-                vec.rot *= (.95 + 0.1*random.rand())
+                vec.rot += (pi/18*random.rand() - pi/36)
                 if VERBOSE >= 3:
                     print("Actual rotation: {:5.3} radians".format(vec.rot))
             debugmap.shiftMap(vec.inverse())
+            vec = Loc(0.0, 0.0, None, pi/6)
             return vec
         else:
             self.writeM("slamrot")
